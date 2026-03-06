@@ -86,11 +86,20 @@ nemoclaw provider create \
   --type nvidia \
   --credential NVIDIA_API_KEY
 
+# Example: Local model (vLLM, LM Studio, Ollama, etc.)
+nemoclaw provider create \
+  --name my-local-model \
+  --type openai \
+  --credential OPENAI_API_KEY=empty-if-not-required \
+  --config OPENAI_BASE_URL=http://192.168.10.15/v1
+
 # Verify
 nemoclaw provider list
 ```
 
 If you used `--from-existing` before, you can use it again to auto-discover credentials from your local environment.
+
+For local models, use `--type openai` (most local inference servers expose an OpenAI-compatible API) and set `OPENAI_BASE_URL` to your local endpoint. The API key can be any non-empty string if your server doesn't require authentication.
 
 ### Step 4: Configure cluster inference
 
@@ -110,6 +119,7 @@ nemoclaw cluster inference get
 | Old command | New equivalent |
 |-------------|----------------|
 | `nemoclaw inference create --routing-hint local --base-url https://api.openai.com/v1 --model-id gpt-4 --api-key sk-...` | `nemoclaw provider create --name openai --type openai --credential OPENAI_API_KEY` then `nemoclaw cluster inference set --provider openai --model gpt-4` |
+| `nemoclaw inference create --routing-hint local --base-url http://192.168.10.15/v1 --model-id my-model --api-key unused` | `nemoclaw provider create --name my-local-model --type openai --credential OPENAI_API_KEY=unused --config OPENAI_BASE_URL=http://192.168.10.15/v1` then `nemoclaw cluster inference set --provider my-local-model --model my-model` |
 | `nemoclaw inference update my-route --model-id gpt-4.1` | `nemoclaw cluster inference update --model gpt-4.1` |
 | `nemoclaw inference delete my-route` | Not needed -- there is only one managed route, reconfigure with `set` |
 | `nemoclaw inference list` | `nemoclaw cluster inference get` |
@@ -184,6 +194,8 @@ client = openai.OpenAI(
     api_key="dummy-key",  # stripped by proxy, real key injected from provider
 )
 ```
+
+> **Important:** `inference.local` only works over HTTPS. The sandbox proxy intercepts HTTPS CONNECT requests to `inference.local`. Plain HTTP requests (`http://inference.local/...`) will not be intercepted and will fail.
 
 For agents that already targeted `inference.local`, no code changes are needed.
 
