@@ -15,6 +15,10 @@ nemoclaw
 │   ├── status
 │   ├── use <name>
 │   ├── list
+│   ├── inference
+│   │   ├── set
+│   │   ├── update
+│   │   └── get
 │   └── admin
 │       ├── deploy
 │       ├── stop
@@ -44,11 +48,6 @@ nemoclaw
 │   ├── list
 │   ├── update <name>
 │   └── delete <name>
-├── inference
-│   ├── create
-│   ├── update <name>
-│   ├── delete <name>
-│   └── list
 ├── term
 └── completions <shell>
 ```
@@ -62,6 +61,9 @@ Manage the NemoClaw runtime cluster.
 | `nemoclaw cluster status` | Show the health and status of the active cluster. |
 | `nemoclaw cluster use <name>` | Set the active cluster. All subsequent commands target this cluster. |
 | `nemoclaw cluster list` | List all registered clusters. |
+| `nemoclaw cluster inference set` | Configure the cluster-wide backend behind `inference.local`. |
+| `nemoclaw cluster inference update` | Update the current provider or model. |
+| `nemoclaw cluster inference get` | Show the active cluster inference configuration. |
 | `nemoclaw cluster admin deploy` | Deploy a new cluster. Add `--remote user@host` for remote deployment. |
 | `nemoclaw cluster admin stop` | Stop the active cluster, preserving state. |
 | `nemoclaw cluster admin destroy` | Permanently remove the cluster and all its data. |
@@ -124,27 +126,32 @@ Manage credential providers that inject secrets into sandboxes.
 | `--credential` | Set a credential explicitly. Format: `KEY=VALUE` or bare `KEY` to read from env. Repeatable. |
 | `--config` | Set a configuration value. Format: `KEY=VALUE`. Repeatable. |
 
-## Inference Commands
+## Cluster Inference Commands
 
-Manage inference routes that intercept and reroute LLM API calls from userland code.
+Configure the single cluster-wide backend used by `https://inference.local`.
 
-| Command | Description |
-|---|---|
-| `nemoclaw inference create` | Create a new inference route. See flag reference below. |
-| `nemoclaw inference update <name>` | Update an existing route's configuration. |
-| `nemoclaw inference delete <name>` | Delete an inference route. |
-| `nemoclaw inference list` | List all inference routes in the active cluster. |
+### `nemoclaw cluster inference set`
 
-### Inference Create Flags
+Set the provider and model for cluster inference. Both flags are required.
 
 | Flag | Description |
 |---|---|
-| `--routing-hint` | Short label that identifies this route (for example, `local`, `nvidia`, `staging`). Referenced by `allowed_routes` in sandbox policies. |
-| `--base-url` | Base URL of the inference backend (for example, `https://vllm.internal:8000`). |
-| `--model-id` | Model identifier to send to the backend (for example, `meta/llama-3.1-8b`). |
-| `--api-key` | API key for authenticating with the backend. |
-| `--protocol` | API protocol: `openai` or `anthropic`. Defaults to `openai`. |
-| `--disabled` | Create the route in a disabled state. |
+| `--provider` | Provider record name to use for injected credentials. |
+| `--model` | Model identifier to force on generation requests. |
+
+### `nemoclaw cluster inference update`
+
+Update only the fields you specify.
+
+| Flag | Description |
+|---|---|
+| `--provider` | Replace the current provider record. |
+| `--model` | Replace the current model ID. |
+
+### `nemoclaw cluster inference get`
+
+Show the current cluster inference configuration, including provider, model, and
+version.
 
 ## NemoClaw Terminal
 

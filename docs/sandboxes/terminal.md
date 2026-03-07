@@ -5,7 +5,7 @@
 
 # Terminal
 
-NemoClaw Terminal is a terminal dashboard that displays sandbox status and live activity in a single view. Use it to monitor agent behavior, diagnose blocked connections, and observe inference interception in real time.
+NemoClaw Terminal is a terminal dashboard that displays sandbox status and live activity in a single view. Use it to monitor agent behavior, diagnose blocked connections, and observe `inference.local` traffic in real time.
 
 ```console
 $ nemoclaw term
@@ -25,7 +25,7 @@ A phase other than `Ready` indicates the sandbox is still initializing or has en
 
 ## Live Log Stream
 
-The logs pane streams activity in real time. Outbound connections, policy decisions, and inference interceptions appear as they occur.
+The logs pane streams activity in real time. Outbound connections, policy decisions, and inference routing events appear as they occur.
 
 Log entries originate from two sources:
 
@@ -57,26 +57,24 @@ To resolve a blocked connection:
 1. Add the host to the network policy if the connection is legitimate. Refer to {doc}`../safety-and-privacy/policies` for the iteration workflow.
 2. Leave it blocked if the connection is unauthorized.
 
-## Diagnosing Inference Interception
+## Diagnosing Inference Traffic
 
-Entries with `action=inspect_for_inference` indicate intercepted API calls:
+Userland inference now goes through the explicit `inference.local` endpoint.
+When code inside the sandbox uses `https://inference.local`, look for CONNECT
+entries targeting `inference.local` plus follow-up routing logs.
 
-```
-22:35:37 sandbox INFO CONNECT action=inspect_for_inference dst_host=integrate.api.nvidia.com dst_port=443
-22:35:37 sandbox INFO Intercepted inference request, routing locally kind=chat_completion
-```
+This indicates:
 
-This sequence indicates:
+- The application intentionally used the sandbox-local inference endpoint.
+- The proxy TLS-terminated the tunnel and inspected the HTTP request.
+- NemoClaw matched a supported inference API pattern and routed it to the
+  cluster-configured backend.
 
-- No network policy matched the connection (the endpoint and binary combination is not in the policy).
-- Inference routing is configured (`allowed_routes` is non-empty), so the proxy intercepted the call instead of denying it.
-- The proxy TLS-terminated the connection, detected an inference API pattern, and routed the request through the privacy router.
+If those requests fail, the most common causes are:
 
-:::{note}
-If these calls should go directly to the destination rather than through inference routing, the most likely cause is a binary path mismatch. The process making the HTTP call does not match any binary listed in the network policy.
-
-Check the log entry for the binary path, then update the `binaries` list in the policy. Refer to {doc}`../safety-and-privacy/network-access-rules` for details on binary matching.
-:::
+- cluster inference is not configured yet
+- the request path does not match a supported inference API pattern
+- the upstream provider credentials or model configuration are invalid
 
 ## Filtering and Navigation
 
@@ -106,5 +104,5 @@ The following keyboard shortcuts are available in the terminal dashboard.
 For deeper dives into topics covered by the terminal dashboard, refer to the following guides.
 
 - Blocked connections: Follow {doc}`../safety-and-privacy/policies` to pull the current policy, add the missing endpoint, and push an update without restarting the sandbox.
-- Inference interception: Refer to {doc}`../safety-and-privacy/network-access-rules` for the distinction between agent traffic (routed directly) and userland traffic (routed through inference routing).
+- Inference routing: Refer to {doc}`../safety-and-privacy/network-access-rules` for the distinction between direct network traffic and `inference.local` traffic.
 - Troubleshooting: Refer to {doc}`../troubleshooting` for troubleshooting tips and diagnostics.

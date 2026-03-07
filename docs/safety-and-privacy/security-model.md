@@ -10,9 +10,9 @@ file, reach any network host, call any API with your credentials, and install
 arbitrary software. NemoClaw's security model exists to prevent all of that.
 
 :::{note}
-NemoClaw uses defense in depth. Four independent protection layers: filesystem,
-network, process, and inference. They work together so that no single point of
-failure can compromise your environment.
+NemoClaw uses defense in depth. Filesystem restrictions, network policies,
+process isolation, and explicit inference routing work together so that no
+single point of failure can compromise your environment.
 :::
 
 ## What Happens Without Protection
@@ -54,10 +54,11 @@ The agent code calls `api.openai.com` with your API key, sending proprietary
 data to a third-party inference provider you did not approve.
 
 **With NemoClaw:**
-The privacy router intercepts outbound API calls and reroutes them to a
-backend you control: a local model, an NVIDIA endpoint, or your own
-deployment. The agent's code does not need to change; the rerouting is
-transparent. Your data never reaches an unauthorized provider.
+Userland code can call `https://inference.local`, and NemoClaw routes that
+traffic to the configured backend using provider credentials stored outside the
+sandboxed application. Direct calls to third-party endpoints still require an
+explicit network policy. Your data does not silently fall through to an
+unapproved provider.
 
 ---
 
@@ -73,15 +74,14 @@ dangerous system calls. Landlock prevents writes outside allowed paths. There
 is no `sudo`, no `setuid`, and no path to elevated privileges.
 
 :::{important}
-All four layers work together. No single layer is sufficient on its own.
-Filesystem restrictions do not prevent network exfiltration. Network policies do
-not prevent local privilege escalation. Process restrictions do not control
-where inference traffic goes. Defense in depth means every layer covers gaps
-that the others cannot.
+These layers work together. Filesystem restrictions do not prevent network
+exfiltration. Network policies do not prevent local privilege escalation.
+Process restrictions do not control where inference traffic goes. Defense in
+depth means each layer covers gaps that the others cannot.
 :::
 
 ## Next Steps
 
-- {doc}`policies`: Write and iterate on the policy YAML that configures all four layers
+- {doc}`policies`: Write and iterate on the policy YAML for filesystem, process, and network access
 - {doc}`network-access-rules`: Configure network rules, binary matching, and TLS inspection
 - {doc}`../inference/index`: Set up private inference backends

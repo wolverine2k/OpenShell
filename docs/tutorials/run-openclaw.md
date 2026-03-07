@@ -69,7 +69,7 @@ This outputs the complete policy YAML, including:
 - Network policies: which hosts and ports the sandbox can reach, and which binaries are allowed to initiate those connections
 - Filesystem policy: which paths are read-only and which are read-write
 - Process restrictions: the user and group the sandbox runs as
-- Inference rules: which inference routing hints are allowed
+- Direct network rules: which external hosts and binaries the sandbox can use
 
 Reviewing the bundled policy is a good way to understand what a community sandbox has access to before you start using it for sensitive work.
 

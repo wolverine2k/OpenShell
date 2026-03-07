@@ -5,9 +5,9 @@
 
 # Safety and Privacy
 
-NemoClaw wraps every sandbox in four independent protection layers. No single
-point of failure can compromise your environment. Each layer covers gaps the
-others cannot.
+NemoClaw wraps every sandbox in multiple independent protection layers. No
+single point of failure can compromise your environment. Each layer covers gaps
+the others cannot.
 
 ```{mermaid}
 graph TB
@@ -20,7 +20,7 @@ graph TB
             fs["Filesystem — Landlock LSM"]
             net["Network — Proxy + Policy Engine"]
             proc["Process — seccomp + Unprivileged User"]
-            inf["Inference — Privacy Router"]
+            inf["Inference — inference.local router"]
 
             subgraph sandbox["Sandbox"]
                 agent(["AI Agent"])
@@ -33,13 +33,14 @@ graph TB
     agent -- "curl approved.com ✔" --> net
     agent -- "curl evil.com ✘" --> net
     agent -- "sudo install pkg ✘" --> proc
-    agent -- "call api.openai.com" --> inf
+    agent -- "call inference.local" --> inf
     inf -- "reroute → your backend ✔" --> net
 ```
 
-You control all four layers through a single YAML policy. Network and inference
-rules are hot-reloadable on a running sandbox. Filesystem and process
-restrictions are locked at creation time.
+You control filesystem, process, and direct network access through sandbox
+policy YAML. Private inference routing is configured separately at the cluster
+level through `inference.local`. Network rules are hot-reloadable on a running
+sandbox. Filesystem and process restrictions are locked at creation time.
 
 - {doc}`security-model`: Threat scenarios (data exfiltration, credential
   theft, unauthorized API calls, privilege escalation) and how NemoClaw

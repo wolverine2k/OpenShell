@@ -5,79 +5,80 @@
 
 # Inference Routing
 
-The inference routing system keeps your AI inference traffic private by
-transparently intercepting API calls from sandboxed agents and rerouting them
-to backends you control.
+NemoClaw exposes inference through a single explicit endpoint inside every
+sandbox: `https://inference.local`. Userland code sends OpenAI- or
+Anthropic-compatible requests there, and NemoClaw routes them to the
+cluster-configured backend.
 
 :::{note}
-Inference routing applies to userland traffic: code that the agent writes
-or runs, not the agent itself. The agent's own API calls (e.g., Claude calling
-`api.anthropic.com`) go direct via network policy. See
-{doc}`/safety-and-privacy/network-access-rules` for the distinction.
+Inference routing applies to userland traffic: scripts, tests, notebooks, and
+applications the agent writes inside the sandbox. The agent's own API traffic
+still goes directly through `network_policies`. See
+{doc}`/safety-and-privacy/network-access-rules`.
 :::
 
 ## How It Works
 
-When userland code inside a sandbox makes an API call (e.g., using the OpenAI
-or Anthropic SDK), the request flows through the sandbox proxy. If the
-destination does not match any explicit network policy but the sandbox has
-inference routes configured, the proxy:
+When code inside a sandbox calls `https://inference.local`, the sandbox proxy:
 
-1. TLS-terminates the connection using the sandbox's ephemeral CA.
-2. Detects the inference API pattern (e.g., `POST /v1/chat/completions`).
-3. Strips authorization headers and forwards to a matching backend.
-4. Rewrites the authorization with the route's API key and model ID.
-5. Returns the response to the agent's code. The agent sees a normal HTTP
-   response as if it came from the original API.
+1. Intercepts the HTTPS `CONNECT` tunnel to `inference.local`.
+2. TLS-terminates the client side using the sandbox CA.
+3. Parses the HTTP request inside the tunnel.
+4. Detects the inference protocol from the method and path.
+5. Forwards the request to the configured backend with the provider's
+   credentials.
+6. Rewrites the `model` field on generation requests to the cluster-configured
+   model.
 
-The agent's code needs zero changes. Standard OpenAI/Anthropic SDK calls work
-transparently.
+There is no implicit catch-all routing for arbitrary hosts anymore. If code
+tries to call `api.openai.com`, `api.anthropic.com`, or any other host directly,
+that traffic is evaluated only by `network_policies`.
 
 ```{mermaid}
 sequenceDiagram
     participant Code as Userland Code
     participant Proxy as Sandbox Proxy
-    participant OPA as Policy Engine
-    participant Router as Privacy Router
-    participant Backend as Your Backend
+    participant Router as Inference Router
+    participant Backend as Configured Backend
 
-    Code->>Proxy: CONNECT api.openai.com:443
-    Proxy->>OPA: evaluate policy
-    OPA-->>Proxy: InspectForInference
+    Code->>Proxy: CONNECT inference.local:443
     Proxy-->>Code: 200 Connection Established
     Proxy->>Proxy: TLS terminate
     Code->>Proxy: POST /v1/chat/completions
-    Proxy->>Router: route to matching backend
-    Router->>Backend: forwarded request
+    Proxy->>Router: route inferred protocol
+    Router->>Backend: forward with injected auth
     Backend-->>Router: response
     Router-->>Proxy: response
-    Proxy-->>Code: HTTP 200 OK
+    Proxy-->>Code: HTTP response over tunnel
 ```
 
 ## Supported API Patterns
 
-The proxy detects these inference patterns:
-
 | Pattern | Method | Path |
 |---|---|---|
-| OpenAI Chat Completions | POST | `/v1/chat/completions` |
-| OpenAI Completions | POST | `/v1/completions` |
-| Anthropic Messages | POST | `/v1/messages` |
+| OpenAI Chat Completions | `POST` | `/v1/chat/completions` |
+| OpenAI Completions | `POST` | `/v1/completions` |
+| OpenAI Responses | `POST` | `/v1/responses` |
+| Anthropic Messages | `POST` | `/v1/messages` |
+| Model Discovery | `GET` | `/v1/models` |
+| Model Discovery | `GET` | `/v1/models/*` |
 
-If an intercepted request does not match any known pattern, it is denied.
+Requests to `inference.local` that do not match one of these patterns are
+denied.
 
 ## Key Properties
 
-- Zero code changes: standard SDK calls work transparently.
-- Inference privacy: prompts and responses stay on your infrastructure.
-- Credential isolation: the agent's code never sees your backend API key.
-- Policy-controlled: `inference.allowed_routes` determines which routes a
-  sandbox can use.
-- Hot-reloadable: update `allowed_routes` on a running sandbox without
-  restarting.
+- Explicit endpoint: routing happens only through `inference.local`.
+- No sandbox API keys: credentials come from the configured provider record.
+- Single cluster config: one provider + one model define sandbox inference.
+- Provider-agnostic: OpenAI, Anthropic, and NVIDIA providers all work through
+  the same endpoint.
+- Hot-refresh: provider credential changes and cluster inference updates are
+  picked up without recreating sandboxes.
 
 ## Next Steps
 
-- {doc}`configure-routes`: create and manage inference routes.
-- {doc}`/safety-and-privacy/network-access-rules`: understand agent traffic vs.
-  userland traffic.
+- {doc}`configure-routes`: configure the cluster-wide backend behind
+  `inference.local`.
+- {doc}`/safety-and-privacy/network-access-rules`: understand direct agent
+  traffic vs. `inference.local` traffic.

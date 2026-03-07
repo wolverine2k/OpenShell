@@ -81,7 +81,7 @@ The `--from` flag pulls from the [NemoClaw Community](https://github.com/NVIDIA/
 
 ::::
 
-The agent runs with filesystem, network, process, and inference protection active. Credentials stay inside the sandbox, network access follows your policy, and inference traffic remains private. A single YAML policy controls all four protection layers and is hot-reloadable on a running sandbox.
+The agent runs with filesystem, network, and process protection active. Credentials stay inside the sandbox, network access follows your policy, and private model access is available through `inference.local`. Sandbox policy is hot-reloadable for network rules, while cluster inference is configured separately.
 
 For OpenCode or Codex, refer to the [](tutorials/run-opencode.md) tutorial for agent-specific setup.
 
@@ -136,7 +136,7 @@ Write policies that control what agents can access. Iterate on network rules in 
 :link: inference/index
 :link-type: doc
 
-Keep inference traffic private by routing API calls to local or self-hosted backends.
+Keep inference traffic private with the explicit `inference.local` endpoint and cluster-managed backends.
 
 +++
 {bdg-secondary}`Concept`

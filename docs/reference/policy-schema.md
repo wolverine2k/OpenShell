@@ -5,7 +5,9 @@
 
 # Policy Schema Reference
 
-Complete field reference for the sandbox policy YAML. Each field is documented with its type, whether it is required, and whether it is static (locked at sandbox creation) or dynamic (hot-reloadable on a running sandbox).
+Complete field reference for the sandbox policy YAML. Each field is documented
+with its type, whether it is required, and whether it is static (locked at
+sandbox creation) or dynamic (hot-reloadable on a running sandbox).
 
 ## Top-Level Structure
 
@@ -15,7 +17,6 @@ filesystem_policy: { ... }
 landlock: { ... }
 process: { ... }
 network_policies: { ... }
-inference: { ... }
 ```
 
 | Field | Type | Required | Category | Description |
@@ -25,9 +26,17 @@ inference: { ... }
 | `landlock` | object | No | Static | Configures Landlock LSM enforcement behavior. |
 | `process` | object | No | Static | Sets the user and group the agent process runs as. |
 | `network_policies` | map | No | Dynamic | Declares which binaries can reach which network endpoints. |
-| `inference` | object | No | Dynamic | Controls which inference routing backends are available. |
 
-Static fields are set at sandbox creation time. Changing them requires destroying and recreating the sandbox. Dynamic fields can be updated on a running sandbox with `nemoclaw sandbox policy set` and take effect without restarting.
+Static fields are set at sandbox creation time. Changing them requires
+destroying and recreating the sandbox. Dynamic fields can be updated on a
+running sandbox with `nemoclaw sandbox policy set` and take effect without
+restarting.
+
+:::{note}
+Inference routing is no longer configured in the policy YAML. `inference.local`
+is configured separately at the cluster level with `nemoclaw cluster inference
+set/get/update`.
+:::
 
 ## Version
 
@@ -39,7 +48,8 @@ Static fields are set at sandbox creation time. Changing them requires destroyin
 
 **Category:** Static
 
-Controls filesystem access inside the sandbox. Paths not listed in either `read_only` or `read_write` are inaccessible.
+Controls filesystem access inside the sandbox. Paths not listed in either
+`read_only` or `read_write` are inaccessible.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -50,12 +60,17 @@ Controls filesystem access inside the sandbox. Paths not listed in either `read_
 **Validation constraints:**
 
 - Every path must be absolute (start with `/`).
-- Paths must not contain `..` traversal components. The server normalizes paths before storage, but rejects policies where traversal would escape the intended scope.
-- Read-write paths must not be overly broad (for example, `/` alone is rejected).
+- Paths must not contain `..` traversal components. The server normalizes paths
+  before storage, but rejects policies where traversal would escape the intended
+  scope.
+- Read-write paths must not be overly broad (for example, `/` alone is
+  rejected).
 - Each individual path must not exceed 4096 characters.
 - The combined total of `read_only` and `read_write` paths must not exceed 256.
 
-Policies that violate these constraints are rejected with `INVALID_ARGUMENT` at creation or update time. Disk-loaded YAML policies that fail validation fall back to a restrictive default.
+Policies that violate these constraints are rejected with `INVALID_ARGUMENT` at
+creation or update time. Disk-loaded YAML policies that fail validation fall
+back to a restrictive default.
 
 Example:
 
@@ -78,7 +93,9 @@ filesystem_policy:
 
 **Category:** Static
 
-Configures [Landlock LSM](https://docs.kernel.org/security/landlock.html) enforcement at the kernel level. Landlock provides mandatory filesystem access control below what UNIX permissions allow.
+Configures [Landlock LSM](https://docs.kernel.org/security/landlock.html)
+enforcement at the kernel level. Landlock provides mandatory filesystem access
+control below what UNIX permissions allow.
 
 | Field | Type | Required | Values | Description |
 |---|---|---|---|---|
@@ -102,7 +119,9 @@ Sets the OS-level identity for the agent process inside the sandbox.
 | `run_as_user` | string | No | The user name or UID the agent process runs as. Default: `sandbox`. |
 | `run_as_group` | string | No | The group name or GID the agent process runs as. Default: `sandbox`. |
 
-**Validation constraint:** Neither `run_as_user` nor `run_as_group` may be set to `root` or `0`. Policies that request root process identity are rejected at creation or update time.
+**Validation constraint:** Neither `run_as_user` nor `run_as_group` may be set
+to `root` or `0`. Policies that request root process identity are rejected at
+creation or update time.
 
 Example:
 
@@ -116,7 +135,10 @@ process:
 
 **Category:** Dynamic
 
-A map of named network policy entries. Each entry declares a set of endpoints and a set of binaries. Only the listed binaries are permitted to connect to the listed endpoints. The map key is a logical identifier. The `name` field inside the entry is the display name used in logs.
+A map of named network policy entries. Each entry declares a set of endpoints
+and a set of binaries. Only the listed binaries are permitted to connect to the
+listed endpoints. The map key is a logical identifier. The `name` field inside
+the entry is the display name used in logs.
 
 ### Network Policy Entry
 
@@ -137,7 +159,7 @@ Each endpoint defines a reachable destination and optional inspection rules.
 | `protocol` | string | No | Set to `rest` to enable L7 (HTTP) inspection. Omit for L4-only (TCP passthrough). |
 | `tls` | string | No | TLS handling mode. `terminate` decrypts TLS at the proxy for inspection. `passthrough` forwards encrypted traffic without inspection. Only relevant when `protocol` is `rest`. |
 | `enforcement` | string | No | `enforce` actively blocks disallowed requests. `audit` logs violations but allows traffic through. |
-| `access` | string | No | HTTP access level. One of `read-only`, `read-write`, or `full`. Refer to table below. Mutually exclusive with `rules`. |
+| `access` | string | No | HTTP access level. One of `read-only`, `read-write`, or `full`. Mutually exclusive with `rules`. |
 | `rules` | list of rule objects | No | Fine-grained per-method, per-path allow rules. Mutually exclusive with `access`. |
 
 #### Access Levels
@@ -150,7 +172,8 @@ Each endpoint defines a reachable destination and optional inspection rules.
 
 #### Rule Object
 
-Used when `access` is not set. Each rule explicitly allows a method and path combination.
+Used when `access` is not set. Each rule explicitly allows a method and path
+combination.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -202,23 +225,4 @@ network_policies:
     binaries:
       - path: /usr/bin/npm
       - path: /usr/bin/node
-```
-
-## Inference
-
-**Category:** Dynamic
-
-Controls which inference routing backends userland code can access. The `allowed_routes` list names route types that the privacy router will accept. Traffic matching an inference API pattern that targets a route type not in this list is denied.
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `allowed_routes` | list of strings | No | Routing hint labels (e.g., `local`, `nvidia`, `staging`) that this sandbox can use. Must match the `routing_hint` of inference routes created with `nemoclaw inference create`. |
-
-Example:
-
-```yaml
-inference:
-  allowed_routes:
-    - local
-    - nvidia
 ```

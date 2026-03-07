@@ -14,7 +14,7 @@ The system has four core components.
 | Gateway | Control-plane API that coordinates sandbox lifecycle and state, acts as the auth boundary, and brokers requests across the platform. |
 | Sandbox | Isolated runtime that includes container supervision and general L7 egress routing. |
 | Policy Engine | Policy definition and enforcement layer for filesystem, network, and process constraints. Defense in depth enforces policies from the application layer down to infrastructure and kernel layers. |
-| Privacy Router | Privacy-aware LLM routing layer that keeps sensitive context on sandbox compute and routes based on cost/privacy policy. |
+| Privacy Router | Sandbox-local inference routing layer behind `inference.local`. It injects provider credentials and forwards requests to the configured backend. |
 
 ## Component Diagram
 
@@ -108,8 +108,8 @@ the proxy. For each connection, the proxy:
    walking, and `/proc/<pid>/cmdline`.
 2. Queries the policy engine with the destination host, port, and resolved
    binary path.
-3. Acts on the decision: allow the connection directly, hand it to the
-   privacy router for inference routing, or deny it. Refer to
+3. Acts on the decision: allow the connection directly or deny it. Requests to
+   `inference.local` are handled separately by the inference router. Refer to
    [How the Proxy Evaluates Connections](../safety-and-privacy/network-access-rules.md#how-the-proxy-evaluates-connections)
    for the full decision model.
 
@@ -132,21 +132,21 @@ delivered through hot-reload are compiled and loaded without restarting the prox
 The privacy router is a privacy-aware LLM routing layer that keeps sensitive
 context on sandbox compute and routes based on cost/privacy policy.
 
-When the policy engine determines that a connection should be inspected for
-inference, the privacy router:
+When sandbox code explicitly calls `https://inference.local`, the privacy
+router:
 
 1. Reads the intercepted HTTP request.
 2. Checks whether the method and path match a recognized inference API pattern
-   (`/v1/chat/completions`, `/v1/completions`, `/v1/messages`).
-3. Selects a route whose `routing_hint` appears in the sandbox policy's
-   `allowed_routes`.
-4. Strips the original authorization header.
-5. Injects the route's API key and model ID.
-6. Forwards the request to the route's backend URL.
+   (`/v1/chat/completions`, `/v1/completions`, `/v1/responses`,
+   `/v1/messages`, `/v1/models`).
+3. Resolves the active cluster inference configuration.
+4. Strips any client-supplied authorization headers.
+5. Injects the provider credentials and configured model.
+6. Forwards the request to the configured backend URL.
 
-The router refreshes its route list periodically from the gateway, so routes
-created with `nemoclaw inference create` become available without restarting
-sandboxes.
+The router refreshes its resolved configuration periodically from the gateway,
+so `nemoclaw cluster inference set/update` changes become available without
+restarting sandboxes.
 
 ## Remote Deployment
 
