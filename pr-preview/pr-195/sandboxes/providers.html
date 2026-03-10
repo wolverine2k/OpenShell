@@ -177,7 +177,7 @@
           
           
           
-          <a href="https://github.com/NVIDIA/NemoClaw" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+          <a href="https://github.com/NVIDIA/OpenShell" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
             <span class="sr-only">GitHub</span></a>
         </li>
         <li class="nav-item">
@@ -189,7 +189,7 @@
           
           
           
-          <a href="https://pypi.org/project/nemoclaw/" title="PyPI" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-python fa-lg" aria-hidden="true"></i>
+          <a href="https://pypi.org/project/openshell/" title="PyPI" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-python fa-lg" aria-hidden="true"></i>
             <span class="sr-only">PyPI</span></a>
         </li>
 </ul></div>
@@ -281,7 +281,7 @@
           
           
           
-          <a href="https://github.com/NVIDIA/NemoClaw" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+          <a href="https://github.com/NVIDIA/OpenShell" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
             <span class="sr-only">GitHub</span></a>
         </li>
         <li class="nav-item">
@@ -293,7 +293,7 @@
           
           
           
-          <a href="https://pypi.org/project/nemoclaw/" title="PyPI" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-python fa-lg" aria-hidden="true"></i>
+          <a href="https://pypi.org/project/openshell/" title="PyPI" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-python fa-lg" aria-hidden="true"></i>
             <span class="sr-only">PyPI</span></a>
         </li>
 </ul></div>
@@ -415,7 +415,7 @@
 <h3>From Local Credentials<a class="headerlink" href="#from-local-credentials" title="Link to this heading">#</a></h3>
 <p>The fastest way to create a provider is to let the CLI discover credentials from
 your shell environment:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>provider<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>my-claude<span class="w"> </span>--type<span class="w"> </span>claude<span class="w"> </span>--from-existing
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>provider<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>my-claude<span class="w"> </span>--type<span class="w"> </span>claude<span class="w"> </span>--from-existing
 </pre></div>
 </div>
 <p>This reads <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code> or <code class="docutils literal notranslate"><span class="pre">CLAUDE_API_KEY</span></code> from your current environment
@@ -424,7 +424,7 @@ and stores them in the provider.</p>
 <section id="with-explicit-credentials">
 <h3>With Explicit Credentials<a class="headerlink" href="#with-explicit-credentials" title="Link to this heading">#</a></h3>
 <p>Supply a credential value directly:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>provider<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>my-api<span class="w"> </span>--type<span class="w"> </span>generic<span class="w"> </span>--credential<span class="w"> </span><span class="nv">API_KEY</span><span class="o">=</span>sk-abc123
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>provider<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>my-api<span class="w"> </span>--type<span class="w"> </span>generic<span class="w"> </span>--credential<span class="w"> </span><span class="nv">API_KEY</span><span class="o">=</span>sk-abc123
 </pre></div>
 </div>
 </section>
@@ -432,7 +432,7 @@ and stores them in the provider.</p>
 <h3>Bare Key Form<a class="headerlink" href="#bare-key-form" title="Link to this heading">#</a></h3>
 <p>Pass a key name without a value to read the value from the environment variable
 of that name:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>provider<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>my-api<span class="w"> </span>--type<span class="w"> </span>generic<span class="w"> </span>--credential<span class="w"> </span>API_KEY
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>provider<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>my-api<span class="w"> </span>--type<span class="w"> </span>generic<span class="w"> </span>--credential<span class="w"> </span>API_KEY
 </pre></div>
 </div>
 <p>This looks up the current value of <code class="docutils literal notranslate"><span class="pre">$API_KEY</span></code> in your shell and stores it.</p>
@@ -442,26 +442,26 @@ of that name:</p>
 <h2>Manage Providers<a class="headerlink" href="#manage-providers" title="Link to this heading">#</a></h2>
 <p>List, inspect, update, and delete providers from the active cluster.</p>
 <p>List all providers:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>provider<span class="w"> </span>list
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>provider<span class="w"> </span>list
 </pre></div>
 </div>
 <p>Inspect a provider:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>provider<span class="w"> </span>get<span class="w"> </span>my-claude
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>provider<span class="w"> </span>get<span class="w"> </span>my-claude
 </pre></div>
 </div>
 <p>Update a provider’s credentials:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>provider<span class="w"> </span>update<span class="w"> </span>my-claude<span class="w"> </span>--type<span class="w"> </span>claude<span class="w"> </span>--from-existing
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>provider<span class="w"> </span>update<span class="w"> </span>my-claude<span class="w"> </span>--type<span class="w"> </span>claude<span class="w"> </span>--from-existing
 </pre></div>
 </div>
 <p>Delete a provider:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>provider<span class="w"> </span>delete<span class="w"> </span>my-claude
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>provider<span class="w"> </span>delete<span class="w"> </span>my-claude
 </pre></div>
 </div>
 </section>
 <section id="attach-providers-to-sandboxes">
 <h2>Attach Providers to Sandboxes<a class="headerlink" href="#attach-providers-to-sandboxes" title="Link to this heading">#</a></h2>
 <p>Pass one or more <code class="docutils literal notranslate"><span class="pre">--provider</span></code> flags when creating a sandbox:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>sandbox<span class="w"> </span>create<span class="w"> </span>--provider<span class="w"> </span>my-claude<span class="w"> </span>--provider<span class="w"> </span>my-github<span class="w"> </span>--<span class="w"> </span>claude
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>sandbox<span class="w"> </span>create<span class="w"> </span>--provider<span class="w"> </span>my-claude<span class="w"> </span>--provider<span class="w"> </span>my-github<span class="w"> </span>--<span class="w"> </span>claude
 </pre></div>
 </div>
 <p>Each <code class="docutils literal notranslate"><span class="pre">--provider</span></code> flag attaches one provider. The sandbox receives all
@@ -474,10 +474,10 @@ providers specified.</p>
 </div>
 <section id="auto-discovery-shortcut">
 <h3>Auto-Discovery Shortcut<a class="headerlink" href="#auto-discovery-shortcut" title="Link to this heading">#</a></h3>
-<p>When the trailing command in <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">sandbox</span> <span class="pre">create</span></code> is a recognized tool name (<code class="docutils literal notranslate"><span class="pre">claude</span></code>, <code class="docutils literal notranslate"><span class="pre">codex</span></code>, or <code class="docutils literal notranslate"><span class="pre">opencode</span></code>), the CLI auto-creates the required
+<p>When the trailing command in <code class="docutils literal notranslate"><span class="pre">openshell</span> <span class="pre">sandbox</span> <span class="pre">create</span></code> is a recognized tool name (<code class="docutils literal notranslate"><span class="pre">claude</span></code>, <code class="docutils literal notranslate"><span class="pre">codex</span></code>, or <code class="docutils literal notranslate"><span class="pre">opencode</span></code>), the CLI auto-creates the required
 provider from your local credentials if one does not already exist. You do not
 need to create the provider separately:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>sandbox<span class="w"> </span>create<span class="w"> </span>--<span class="w"> </span>claude
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>sandbox<span class="w"> </span>create<span class="w"> </span>--<span class="w"> </span>claude
 </pre></div>
 </div>
 <p>This detects <code class="docutils literal notranslate"><span class="pre">claude</span></code> as a known tool, finds your <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code>, creates
