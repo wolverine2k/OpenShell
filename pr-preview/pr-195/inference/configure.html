@@ -427,10 +427,36 @@
 <section id="step-1-create-a-provider">
 <h2>Step 1: Create a Provider<a class="headerlink" href="#step-1-create-a-provider" title="Link to this heading">#</a></h2>
 <p>Create a provider that holds the backend credentials you want OpenShell to use.</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-0">
+NVIDIA API Catalog</label><div class="sd-tab-content docutils">
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>provider<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>nvidia-prod<span class="w"> </span>--type<span class="w"> </span>nvidia<span class="w"> </span>--from-existing
 </pre></div>
 </div>
-<p>You can also use <code class="docutils literal notranslate"><span class="pre">openai</span></code> or <code class="docutils literal notranslate"><span class="pre">anthropic</span></code> provider types.</p>
+<p>This reads <code class="docutils literal notranslate"><span class="pre">NVIDIA_API_KEY</span></code> from your environment.</p>
+</div>
+<input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-1">
+Local / self-hosted endpoint</label><div class="sd-tab-content docutils">
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>provider<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--name<span class="w"> </span>my-local-model<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--type<span class="w"> </span>openai<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--credential<span class="w"> </span><span class="nv">OPENAI_API_KEY</span><span class="o">=</span>empty-if-not-required<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--config<span class="w"> </span><span class="nv">OPENAI_BASE_URL</span><span class="o">=</span>http://192.168.10.15/v1
+</pre></div>
+</div>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--config</span> <span class="pre">OPENAI_BASE_URL</span></code> to point to any OpenAI-compatible server running on your network. Set <code class="docutils literal notranslate"><span class="pre">OPENAI_API_KEY</span></code> to a dummy value if the server does not require authentication.</p>
+</div>
+<input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+Anthropic</label><div class="sd-tab-content docutils">
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>provider<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>anthropic-prod<span class="w"> </span>--type<span class="w"> </span>anthropic<span class="w"> </span>--from-existing
+</pre></div>
+</div>
+<p>This reads <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code> from your environment.</p>
+</div>
+</div>
 </section>
 <section id="step-2-set-inference-routing">
 <h2>Step 2: Set Inference Routing<a class="headerlink" href="#step-2-set-inference-routing" title="Link to this heading">#</a></h2>
@@ -476,6 +502,18 @@
 </div>
 <p>The client-supplied model is ignored for generation requests. OpenShell rewrites it to the configured model before forwarding upstream.</p>
 <p>Use this endpoint when inference should stay local to the host for privacy and security reasons. External providers that should be reached directly belong in <code class="docutils literal notranslate"><span class="pre">network_policies</span></code> instead.</p>
+<section id="verify-the-endpoint-from-a-sandbox">
+<h3>Verify the Endpoint from a Sandbox<a class="headerlink" href="#verify-the-endpoint-from-a-sandbox" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">inference</span> <span class="pre">get</span></code> confirms the configuration was saved, but does not verify the upstream endpoint is reachable. To confirm end-to-end connectivity, connect to a sandbox and run:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>https://inference.local/v1/responses<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
+<span class="s1">      &quot;instructions&quot;: &quot;You are a helpful assistant.&quot;,</span>
+<span class="s1">      &quot;input&quot;: &quot;Hello!&quot;</span>
+<span class="s1">    }&#39;</span>
+</pre></div>
+</div>
+<p>A successful response confirms the privacy router can reach the configured backend and the model is serving requests.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <ul class="simple">
@@ -483,6 +521,7 @@
 <li><p><strong>HTTPS only</strong> — <code class="docutils literal notranslate"><span class="pre">inference.local</span></code> is intercepted only for HTTPS traffic.</p></li>
 </ul>
 </div>
+</section>
 </section>
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h2>
@@ -548,7 +587,10 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-set-inference-routing">Step 2: Set Inference Routing</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-verify-the-active-config">Step 3: Verify the Active Config</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-update-part-of-the-config">Step 4: Update Part of the Config</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#use-it-from-a-sandbox">Use It from a Sandbox</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#use-it-from-a-sandbox">Use It from a Sandbox</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#verify-the-endpoint-from-a-sandbox">Verify the Endpoint from a Sandbox</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
 </ul>
   </nav></div>
