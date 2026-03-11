@@ -513,10 +513,10 @@ reconnect later from another terminal or VS Code.</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>term
 </pre></div>
 </div>
-<p>The dashboard shows:</p>
+<p>The dashboard shows the following information.</p>
 <ul class="simple">
-<li><p><strong>Sandbox status</strong> — name, phase, image, attached providers, age, and active port forwards.</p></li>
-<li><p><strong>Live log stream</strong> — outbound connections, policy decisions, and inference interceptions as they happen. Logs are labeled by source: <code class="docutils literal notranslate"><span class="pre">sandbox</span></code> (proxy and policy events) or <code class="docutils literal notranslate"><span class="pre">gateway</span></code> (lifecycle events).</p></li>
+<li><p><strong>Sandbox status</strong>: Name, phase, image, attached providers, age, and active port forwards.</p></li>
+<li><p><strong>Live log stream</strong>: Omutbound connections, policy decisions, and inference interceptions as they happen. Logs are labeled by source: <code class="docutils literal notranslate"><span class="pre">sandbox</span></code> (proxy and policy events) or <code class="docutils literal notranslate"><span class="pre">gateway</span></code> (lifecycle events).</p></li>
 </ul>
 <p>Use the terminal to spot blocked connections (<code class="docutils literal notranslate"><span class="pre">action=deny</span></code> entries) and inference interceptions (<code class="docutils literal notranslate"><span class="pre">action=inspect_for_inference</span></code> entries). If a connection is blocked unexpectedly, add the host to your network policy — refer to <a class="reference internal" href="policies.html"><span class="doc">Customize Sandbox Policies</span></a> for the workflow.</p>
 </section>

@@ -539,10 +539,10 @@ When you create a sandbox without <code class="docutils literal notranslate"><sp
 </section>
 <section id="network-access-rules">
 <h2>Network Access Rules<a class="headerlink" href="#network-access-rules" title="Link to this heading">#</a></h2>
-<p>Network access is controlled by policy blocks under <code class="docutils literal notranslate"><span class="pre">network_policies</span></code>. Each block has a <strong>name</strong>, a list of <strong>endpoints</strong> (host, port, protocol, and optional rules), and a list of <strong>binaries</strong> that are allowed to use those endpoints.</p>
+<p>Network access is controlled by policy blocks under <code class="docutils literal notranslate"><span class="pre">network_policies</span></code>. Each block has a name, a list of endpoints (host, port, protocol, and optional rules), and a list of binaries that are allowed to use those endpoints.</p>
 <p>Every outbound connection from the sandbox goes through the proxy:</p>
 <ul class="simple">
-<li><p>The proxy queries the <a class="reference internal" href="../about/architecture.html"><span class="doc">policy engine</span></a> with the <strong>destination</strong> (host and port) and the <strong>calling binary</strong>. A connection is allowed only when both match an entry in the same policy block.</p></li>
+<li><p>The proxy queries the <a class="reference internal" href="../about/architecture.html"><span class="doc">policy engine</span></a> with the destination (host and port) and the calling binary. A connection is allowed only when both match an entry in the same policy block.</p></li>
 <li><p>For endpoints with <code class="docutils literal notranslate"><span class="pre">protocol:</span> <span class="pre">rest</span></code> and <code class="docutils literal notranslate"><span class="pre">tls:</span> <span class="pre">terminate</span></code>, each HTTP request is checked against that endpoint’s <code class="docutils literal notranslate"><span class="pre">rules</span></code> (method and path).</p></li>
 <li><p>If no endpoint matches and inference routes are configured, the request may be rerouted for inference.</p></li>
 <li><p>Otherwise the connection is denied. Endpoints without <code class="docutils literal notranslate"><span class="pre">protocol</span></code> or <code class="docutils literal notranslate"><span class="pre">tls</span></code> allow the TCP stream through without inspecting payloads.</p></li>
