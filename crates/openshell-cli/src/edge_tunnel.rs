@@ -36,6 +36,8 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tracing::{debug, error, warn};
 
+const EDGE_TUNNEL_WS_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// A running edge-authenticated tunnel proxy.
 ///
 /// The proxy listens on a local TCP port and tunnels each connection over a
@@ -170,9 +172,13 @@ async fn open_ws(config: &TunnelConfig) -> Result<WebSocketStream<MaybeTlsStream
 
     debug!(url = %config.ws_url, "opening WebSocket to edge");
 
-    let (ws_stream, response) = tokio_tungstenite::connect_async(request)
-        .await
-        .map_err(|e| miette::miette!("WebSocket connect failed: {e}"))?;
+    let (ws_stream, response) = tokio::time::timeout(
+        EDGE_TUNNEL_WS_CONNECT_TIMEOUT,
+        tokio_tungstenite::connect_async(request),
+    )
+    .await
+    .map_err(|_| miette::miette!("timed out opening WebSocket to edge"))?
+    .map_err(|e| miette::miette!("WebSocket connect failed: {e}"))?;
 
     debug!(
         status = %response.status(),

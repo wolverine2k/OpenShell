@@ -54,6 +54,9 @@ impl Editor {
     }
 }
 
+const SSH_PROXY_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const SSH_PROXY_STATUS_TIMEOUT: Duration = Duration::from_secs(10);
+
 struct SshSessionConfig {
     proxy_command: String,
     sandbox_id: String,
@@ -712,7 +715,12 @@ pub async fn sandbox_ssh_proxy(
     // any bytes read past the `\r\n\r\n` header boundary stay buffered and
     // are returned by subsequent reads during the bidirectional copy phase.
     let mut buf_stream = BufReader::new(stream);
-    let status = read_connect_status(&mut buf_stream).await?;
+    let status = tokio::time::timeout(
+        SSH_PROXY_STATUS_TIMEOUT,
+        read_connect_status(&mut buf_stream),
+    )
+    .await
+    .map_err(|_| miette::miette!("timed out waiting for gateway CONNECT response"))??;
     if status != 200 {
         return Err(miette::miette!(
             "gateway CONNECT failed with status {status}"
@@ -984,14 +992,21 @@ async fn connect_gateway(
             .ok_or_else(|| miette::miette!("edge token required for tunnel"))?;
         let gateway_url = format!("https://{host}:{port}");
         let proxy = crate::edge_tunnel::start_tunnel_proxy(&gateway_url, token).await?;
-        let tcp = TcpStream::connect(proxy.local_addr)
-            .await
-            .into_diagnostic()?;
+        let tcp = tokio::time::timeout(
+            SSH_PROXY_CONNECT_TIMEOUT,
+            TcpStream::connect(proxy.local_addr),
+        )
+        .await
+        .map_err(|_| miette::miette!("timed out connecting to edge tunnel proxy"))?
+        .into_diagnostic()?;
         tcp.set_nodelay(true).into_diagnostic()?;
         return Ok(Box::new(tcp));
     }
 
-    let tcp = TcpStream::connect((host, port)).await.into_diagnostic()?;
+    let tcp = tokio::time::timeout(SSH_PROXY_CONNECT_TIMEOUT, TcpStream::connect((host, port)))
+        .await
+        .map_err(|_| miette::miette!("timed out connecting to SSH gateway"))?
+        .into_diagnostic()?;
     tcp.set_nodelay(true).into_diagnostic()?;
     if scheme.eq_ignore_ascii_case("https") {
         let materials = require_tls_materials(&format!("https://{host}:{port}"), tls)?;
@@ -999,10 +1014,13 @@ async fn connect_gateway(
         let connector = TlsConnector::from(Arc::new(config));
         let server_name = ServerName::try_from(host.to_string())
             .map_err(|_| miette::miette!("invalid server name: {host}"))?;
-        let tls = connector
-            .connect(server_name, tcp)
-            .await
-            .into_diagnostic()?;
+        let tls = tokio::time::timeout(
+            SSH_PROXY_CONNECT_TIMEOUT,
+            connector.connect(server_name, tcp),
+        )
+        .await
+        .map_err(|_| miette::miette!("timed out establishing TLS to SSH gateway"))?
+        .into_diagnostic()?;
         Ok(Box::new(tls))
     } else {
         Ok(Box::new(tcp))

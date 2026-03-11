@@ -30,6 +30,8 @@ const MAX_CONNECTIONS_PER_TOKEN: u32 = 3;
 
 /// Maximum concurrent SSH tunnel connections per sandbox.
 const MAX_CONNECTIONS_PER_SANDBOX: u32 = 20;
+const SSH_UPSTREAM_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const SSH_UPSTREAM_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub fn router(state: Arc<ServerState>) -> Router {
     Router::new()
@@ -141,24 +143,26 @@ async fn ssh_connect(
         *count += 1;
     }
 
+    let upgrade = hyper::upgrade::on(req);
     let handshake_secret = state.config.ssh_handshake_secret.clone();
     let sandbox_id_clone = sandbox_id.clone();
     let token_clone = token.clone();
     let state_clone = state.clone();
+    let upstream =
+        match establish_upstream(&connect_target, &token, &handshake_secret, &sandbox_id).await {
+            Ok(upstream) => upstream,
+            Err(err) => {
+                warn!(sandbox_id = %sandbox_id, error = %err, "SSH tunnel setup failed");
+                decrement_connection_count(&state.ssh_connections_by_token, &token);
+                decrement_connection_count(&state.ssh_connections_by_sandbox, &sandbox_id);
+                return err.status_code().into_response();
+            }
+        };
 
-    let upgrade = hyper::upgrade::on(req);
     tokio::spawn(async move {
         match upgrade.await {
             Ok(mut upgraded) => {
-                if let Err(err) = handle_tunnel(
-                    &mut upgraded,
-                    connect_target,
-                    &token_clone,
-                    &handshake_secret,
-                    &sandbox_id_clone,
-                )
-                .await
-                {
+                if let Err(err) = bridge_tunnel(&mut upgraded, upstream, &sandbox_id_clone).await {
                     warn!(error = %err, "SSH tunnel failure");
                 }
             }
@@ -175,18 +179,15 @@ async fn ssh_connect(
     StatusCode::OK.into_response()
 }
 
-async fn handle_tunnel(
-    upgraded: &mut Upgraded,
-    target: ConnectTarget,
+async fn establish_upstream(
+    target: &ConnectTarget,
     token: &str,
     secret: &str,
     sandbox_id: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<TcpStream, TunnelSetupError> {
     // The sandbox pod may not be network-reachable immediately after the CRD
     // reports Ready (DNS propagation, pod IP assignment, SSH server startup).
     // Retry the TCP connection with exponential backoff.
-    let mut upstream = None;
-    let mut last_err = None;
     let delays = [
         Duration::from_millis(100),
         Duration::from_millis(250),
@@ -202,6 +203,33 @@ async fn handle_tunnel(
         ConnectTarget::Host(host, port) => format!("{host}:{port}"),
     };
     info!(sandbox_id = %sandbox_id, target = %target_desc, "SSH tunnel: connecting to sandbox");
+    establish_upstream_with_timeouts(
+        target,
+        token,
+        secret,
+        sandbox_id,
+        SSH_UPSTREAM_CONNECT_TIMEOUT,
+        SSH_UPSTREAM_HANDSHAKE_TIMEOUT,
+        &delays,
+    )
+    .await
+}
+
+async fn establish_upstream_with_timeouts(
+    target: &ConnectTarget,
+    token: &str,
+    secret: &str,
+    sandbox_id: &str,
+    connect_timeout: Duration,
+    handshake_timeout: Duration,
+    delays: &[Duration],
+) -> Result<TcpStream, TunnelSetupError> {
+    let mut upstream = None;
+    let mut last_err = None;
+    let target_desc = match target {
+        ConnectTarget::Ip(addr) => format!("{addr}"),
+        ConnectTarget::Host(host, port) => format!("{host}:{port}"),
+    };
     for (attempt, delay) in std::iter::once(&Duration::ZERO)
         .chain(delays.iter())
         .enumerate()
@@ -210,10 +238,7 @@ async fn handle_tunnel(
             info!(sandbox_id = %sandbox_id, attempt = attempt + 1, delay_ms = delay.as_millis() as u64, "SSH tunnel: retrying TCP connect");
             tokio::time::sleep(*delay).await;
         }
-        let result = match &target {
-            ConnectTarget::Ip(addr) => TcpStream::connect(addr).await,
-            ConnectTarget::Host(host, port) => TcpStream::connect((host.as_str(), *port)).await,
-        };
+        let result = connect_target_with_timeout(target, connect_timeout).await;
         match result {
             Ok(stream) => {
                 info!(
@@ -231,22 +256,44 @@ async fn handle_tunnel(
         }
     }
     let mut upstream = upstream.ok_or_else(|| {
-        let err = last_err.unwrap();
-        format!("failed to connect to sandbox after retries: {err}")
+        last_err.unwrap_or_else(|| {
+            TunnelSetupError::Other(format!(
+                "failed to connect to sandbox after retries: {target_desc}"
+            ))
+        })
     })?;
-    upstream.set_nodelay(true)?;
+    upstream
+        .set_nodelay(true)
+        .map_err(|err| TunnelSetupError::Other(err.to_string()))?;
     info!(sandbox_id = %sandbox_id, "SSH tunnel: sending NSSH1 handshake preface");
-    let preface = build_preface(token, secret)?;
-    upstream.write_all(preface.as_bytes()).await?;
+    let preface =
+        build_preface(token, secret).map_err(|err| TunnelSetupError::Other(err.to_string()))?;
+    tokio::time::timeout(handshake_timeout, upstream.write_all(preface.as_bytes()))
+        .await
+        .map_err(|_| TunnelSetupError::Timeout("timed out sending sandbox handshake preface"))?
+        .map_err(|err| TunnelSetupError::Other(err.to_string()))?;
 
     info!(sandbox_id = %sandbox_id, "SSH tunnel: waiting for handshake response");
     let mut response = String::new();
-    read_line(&mut upstream, &mut response).await?;
+    tokio::time::timeout(handshake_timeout, read_line(&mut upstream, &mut response))
+        .await
+        .map_err(|_| TunnelSetupError::Timeout("timed out waiting for sandbox handshake response"))?
+        .map_err(|err| TunnelSetupError::Other(err.to_string()))?;
     info!(sandbox_id = %sandbox_id, response = %response.trim(), "SSH tunnel: handshake response received");
     if response.trim() != "OK" {
-        return Err("sandbox handshake rejected".into());
+        return Err(TunnelSetupError::Other(
+            "sandbox handshake rejected".to_string(),
+        ));
     }
 
+    Ok(upstream)
+}
+
+async fn bridge_tunnel(
+    upgraded: &mut Upgraded,
+    mut upstream: TcpStream,
+    sandbox_id: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!(sandbox_id = %sandbox_id, "SSH tunnel established");
     let mut upgraded = TokioIo::new(upgraded);
     // Discard the result entirely – connection-close errors are expected when
@@ -257,6 +304,24 @@ async fn handle_tunnel(
     // to read any remaining protocol data (e.g. exit-status) from its buffer.
     let _ = AsyncWriteExt::shutdown(&mut upgraded).await;
     Ok(())
+}
+
+async fn connect_target_with_timeout(
+    target: &ConnectTarget,
+    timeout: Duration,
+) -> Result<TcpStream, TunnelSetupError> {
+    let connect = match target {
+        ConnectTarget::Ip(addr) => tokio::time::timeout(timeout, TcpStream::connect(addr)).await,
+        ConnectTarget::Host(host, port) => {
+            tokio::time::timeout(timeout, TcpStream::connect((host.as_str(), *port))).await
+        }
+    };
+
+    match connect {
+        Ok(Ok(stream)) => Ok(stream),
+        Ok(Err(err)) => Err(TunnelSetupError::Other(err.to_string())),
+        Err(_) => Err(TunnelSetupError::Timeout("timed out connecting to sandbox")),
+    }
 }
 
 fn header_value(headers: &http::HeaderMap, name: &str) -> Result<String, StatusCode> {
@@ -348,6 +413,30 @@ enum ConnectTarget {
     Host(String, u16),
 }
 
+#[derive(Debug, Clone)]
+enum TunnelSetupError {
+    Timeout(&'static str),
+    Other(String),
+}
+
+impl TunnelSetupError {
+    const fn status_code(&self) -> StatusCode {
+        match self {
+            Self::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
+            Self::Other(_) => StatusCode::BAD_GATEWAY,
+        }
+    }
+}
+
+impl std::fmt::Display for TunnelSetupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Timeout(msg) => write!(f, "{msg}"),
+            Self::Other(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
 /// Decrement a connection count entry, removing it if it reaches zero.
 fn decrement_connection_count(
     counts: &std::sync::Mutex<std::collections::HashMap<String, u32>>,
@@ -422,6 +511,7 @@ mod tests {
     use crate::persistence::Store;
     use std::collections::HashMap;
     use std::sync::Mutex;
+    use tokio::net::TcpListener;
 
     fn make_session(id: &str, sandbox_id: &str, expires_at_ms: i64, revoked: bool) -> SshSession {
         SshSession {
@@ -601,5 +691,57 @@ mod tests {
             !is_expired,
             "session with zero expiry should never be expired"
         );
+    }
+
+    #[tokio::test]
+    async fn establish_upstream_times_out_waiting_for_handshake_response() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (_stream, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        });
+
+        let err = establish_upstream_with_timeouts(
+            &ConnectTarget::Ip(addr),
+            "token",
+            "secret",
+            "sandbox-1",
+            Duration::from_millis(20),
+            Duration::from_millis(20),
+            &[],
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(err, TunnelSetupError::Timeout(_)));
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn establish_upstream_rejects_non_ok_handshake_response() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 256];
+            let _ = stream.read(&mut buf).await.unwrap();
+            stream.write_all(b"ERR\n").await.unwrap();
+        });
+
+        let err = establish_upstream_with_timeouts(
+            &ConnectTarget::Ip(addr),
+            "token",
+            "secret",
+            "sandbox-1",
+            Duration::from_millis(20),
+            Duration::from_millis(20),
+            &[],
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(err, TunnelSetupError::Other(_)));
+        let _ = server.await;
     }
 }

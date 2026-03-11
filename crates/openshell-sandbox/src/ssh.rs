@@ -32,6 +32,8 @@ const PREFACE_MAGIC: &str = "NSSH1";
 #[cfg(test)]
 const SSH_HANDSHAKE_SECRET_ENV: &str = "OPENSHELL_SSH_HANDSHAKE_SECRET";
 
+const SSH_PREFACE_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// A time-bounded set of nonces used to detect replayed NSSH1 handshakes.
 /// Each entry records the `Instant` it was inserted; a background reaper task
 /// periodically evicts entries older than the handshake skew window.
@@ -162,7 +164,9 @@ async fn handle_connection(
 ) -> Result<()> {
     info!(peer = %peer, "SSH connection: reading handshake preface");
     let mut line = String::new();
-    read_line(&mut stream, &mut line).await?;
+    tokio::time::timeout(SSH_PREFACE_TIMEOUT, read_line(&mut stream, &mut line))
+        .await
+        .map_err(|_| miette::miette!("timed out waiting for SSH handshake preface"))??;
     info!(peer = %peer, preface_len = line.len(), "SSH connection: preface received, verifying");
     if !verify_preface(&line, secret, handshake_skew_secs, nonce_cache)? {
         warn!(peer = %peer, "SSH connection: handshake verification failed");
@@ -270,6 +274,11 @@ struct SshHandler {
     proxy_url: Option<String>,
     ca_file_paths: Option<Arc<(PathBuf, PathBuf)>>,
     provider_env: HashMap<String, String>,
+    channels: HashMap<ChannelId, ChannelState>,
+}
+
+#[derive(Default)]
+struct ChannelState {
     input_sender: Option<mpsc::Sender<Vec<u8>>>,
     pty_master: Option<std::fs::File>,
     pty_request: Option<PtyRequest>,
@@ -291,10 +300,72 @@ impl SshHandler {
             proxy_url,
             ca_file_paths,
             provider_env,
-            input_sender: None,
-            pty_master: None,
-            pty_request: None,
+            channels: HashMap::new(),
         }
+    }
+
+    fn channel_state(&mut self, channel: ChannelId) -> &mut ChannelState {
+        self.channels.entry(channel).or_default()
+    }
+
+    fn record_pty_request(
+        &mut self,
+        channel: ChannelId,
+        term: &str,
+        col_width: u32,
+        row_height: u32,
+    ) {
+        self.channel_state(channel).pty_request = Some(PtyRequest {
+            term: term.to_string(),
+            col_width,
+            row_height,
+            pixel_width: 0,
+            pixel_height: 0,
+        });
+    }
+
+    fn resize_channel_pty(
+        &mut self,
+        channel: ChannelId,
+        col_width: u32,
+        row_height: u32,
+        pixel_width: u32,
+        pixel_height: u32,
+    ) {
+        if let Some(master) = self
+            .channels
+            .get(&channel)
+            .and_then(|state| state.pty_master.as_ref())
+        {
+            let winsize = Winsize {
+                ws_row: to_u16(row_height.max(1)),
+                ws_col: to_u16(col_width.max(1)),
+                ws_xpixel: to_u16(pixel_width),
+                ws_ypixel: to_u16(pixel_height),
+            };
+            let _ = unsafe_pty::set_winsize(master.as_raw_fd(), winsize);
+        }
+    }
+
+    fn forward_channel_data(&mut self, channel: ChannelId, data: &[u8]) {
+        if let Some(sender) = self
+            .channels
+            .get(&channel)
+            .and_then(|state| state.input_sender.as_ref())
+            .cloned()
+        {
+            let _ = sender.send(data.to_vec());
+        }
+    }
+
+    fn close_channel_input(&mut self, channel: ChannelId) {
+        if let Some(state) = self.channels.get_mut(&channel) {
+            state.input_sender.take();
+        }
+    }
+
+    fn cleanup_channel(&mut self, channel: ChannelId) {
+        self.channels.remove(&channel);
     }
 }
 
@@ -380,35 +451,21 @@ impl russh::server::Handler for SshHandler {
         _modes: &[(russh::Pty, u32)],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        self.pty_request = Some(PtyRequest {
-            term: term.to_string(),
-            col_width,
-            row_height,
-            pixel_width: 0,
-            pixel_height: 0,
-        });
+        self.record_pty_request(channel, term, col_width, row_height);
         session.channel_success(channel)?;
         Ok(())
     }
 
     async fn window_change_request(
         &mut self,
-        _channel: ChannelId,
+        channel: ChannelId,
         col_width: u32,
         row_height: u32,
         pixel_width: u32,
         pixel_height: u32,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if let Some(master) = self.pty_master.as_ref() {
-            let winsize = Winsize {
-                ws_row: to_u16(row_height.max(1)),
-                ws_col: to_u16(col_width.max(1)),
-                ws_xpixel: to_u16(pixel_width),
-                ws_ypixel: to_u16(pixel_height),
-            };
-            let _ = unsafe_pty::set_winsize(master.as_raw_fd(), winsize);
-        }
+        self.resize_channel_pty(channel, col_width, row_height, pixel_width, pixel_height);
         Ok(())
     }
 
@@ -491,26 +548,33 @@ impl russh::server::Handler for SshHandler {
 
     async fn data(
         &mut self,
-        _channel: ChannelId,
+        channel: ChannelId,
         data: &[u8],
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if let Some(sender) = self.input_sender.as_ref() {
-            let _ = sender.send(data.to_vec());
-        }
+        self.forward_channel_data(channel, data);
         Ok(())
     }
 
     async fn channel_eof(
         &mut self,
-        _channel: ChannelId,
+        channel: ChannelId,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
         // Drop the input sender so the stdin writer thread sees a
         // disconnected channel and closes the child's stdin pipe.  This
         // is essential for commands like `cat | tar xf -` which need
         // stdin EOF to know the input stream is complete.
-        self.input_sender.take();
+        self.close_channel_input(channel);
+        Ok(())
+    }
+
+    async fn channel_close(
+        &mut self,
+        channel: ChannelId,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.cleanup_channel(channel);
         Ok(())
     }
 }
@@ -522,7 +586,12 @@ impl SshHandler {
         handle: Handle,
         command: Option<String>,
     ) -> anyhow::Result<()> {
-        if let Some(pty) = self.pty_request.take() {
+        let pty_request = self
+            .channels
+            .get_mut(&channel)
+            .and_then(|state| state.pty_request.take());
+
+        if let Some(pty) = pty_request {
             // PTY was requested — allocate a real PTY (interactive shell or
             // exec that explicitly asked for a terminal).
             let (pty_master, input_sender) = spawn_pty_shell(
@@ -537,8 +606,9 @@ impl SshHandler {
                 self.ca_file_paths.clone(),
                 &self.provider_env,
             )?;
-            self.pty_master = Some(pty_master);
-            self.input_sender = Some(input_sender);
+            let state = self.channel_state(channel);
+            state.pty_master = Some(pty_master);
+            state.input_sender = Some(input_sender);
         } else {
             // No PTY requested — use plain pipes so stdout/stderr are
             // separate and output has clean LF line endings.  This is the
@@ -554,7 +624,7 @@ impl SshHandler {
                 self.ca_file_paths.clone(),
                 &self.provider_env,
             )?;
-            self.input_sender = Some(input_sender);
+            self.channel_state(channel).input_sender = Some(input_sender);
         }
         Ok(())
     }
@@ -823,7 +893,9 @@ fn spawn_pty_shell(
         // `nohup daemon &`) may hold the PTY slave open indefinitely,
         // preventing the reader from reaching EOF.  Two seconds is enough
         // for any remaining buffered data to drain.
-        let _ = reader_done_rx.recv_timeout(Duration::from_secs(2));
+        if reader_done_rx.recv_timeout(Duration::from_secs(2)).is_err() {
+            warn!(channel = %channel, "PTY reader did not drain before timeout");
+        }
         drop(runtime_exit.spawn(async move {
             let _ = handle_exit.exit_status_request(channel, code).await;
             let _ = handle_exit.close(channel).await;
@@ -972,8 +1044,12 @@ fn spawn_pipe_exec(
         unregister_managed_child(child_pid);
         let code = status.and_then(|s| s.code()).unwrap_or(1).unsigned_abs();
         // Wait for both reader threads.
-        let _ = reader_done_rx.recv_timeout(Duration::from_secs(2));
-        let _ = reader_done_rx.recv_timeout(Duration::from_secs(1));
+        if reader_done_rx.recv_timeout(Duration::from_secs(2)).is_err() {
+            warn!(channel = %channel, "stdout reader did not drain before timeout");
+        }
+        if reader_done_rx.recv_timeout(Duration::from_secs(1)).is_err() {
+            warn!(channel = %channel, "stderr reader did not drain before timeout");
+        }
         drop(runtime_exit.spawn(async move {
             let _ = handle_exit.eof(channel).await;
             let _ = handle_exit.exit_status_request(channel, code).await;
@@ -1078,6 +1154,31 @@ fn to_u16(value: u32) -> u16 {
 mod tests {
     use super::*;
     use std::process::Stdio;
+    use crate::policy::{FilesystemPolicy, LandlockPolicy, NetworkPolicy, ProcessPolicy};
+
+    fn test_channel_id(id: u32) -> ChannelId {
+        #[allow(unsafe_code)]
+        unsafe {
+            std::mem::transmute(id)
+        }
+    }
+
+    fn empty_handler() -> SshHandler {
+        SshHandler::new(
+            SandboxPolicy {
+                version: 1,
+                filesystem: FilesystemPolicy::default(),
+                network: NetworkPolicy::default(),
+                landlock: LandlockPolicy::default(),
+                process: ProcessPolicy::default(),
+            },
+            None,
+            None,
+            None,
+            None,
+            HashMap::new(),
+        )
+    }
 
     /// Verify that dropping the input sender (the operation `channel_eof`
     /// performs) causes the stdin writer loop to exit and close the child's
@@ -1180,6 +1281,60 @@ mod tests {
             100 * 1024,
             "expected all 100 KiB delivered before EOF"
         );
+    }
+
+    #[test]
+    fn channel_data_routes_only_to_matching_channel() {
+        let mut handler = empty_handler();
+        let channel1 = test_channel_id(1);
+        let channel2 = test_channel_id(2);
+        let (sender1, receiver1) = mpsc::channel::<Vec<u8>>();
+        let (sender2, receiver2) = mpsc::channel::<Vec<u8>>();
+        handler.channel_state(channel1).input_sender = Some(sender1);
+        handler.channel_state(channel2).input_sender = Some(sender2);
+
+        handler.forward_channel_data(channel1, b"hello");
+
+        assert_eq!(receiver1.recv().unwrap(), b"hello");
+        assert!(
+            receiver2.try_recv().is_err(),
+            "unexpected data on second channel"
+        );
+    }
+
+    #[test]
+    fn channel_eof_only_closes_matching_channel_input() {
+        let mut handler = empty_handler();
+        let channel1 = test_channel_id(1);
+        let channel2 = test_channel_id(2);
+        let (sender1, receiver1) = mpsc::channel::<Vec<u8>>();
+        let (sender2, receiver2) = mpsc::channel::<Vec<u8>>();
+        handler.channel_state(channel1).input_sender = Some(sender1);
+        handler.channel_state(channel2).input_sender = Some(sender2.clone());
+
+        handler.close_channel_input(channel1);
+        handler.forward_channel_data(channel2, b"still-open");
+
+        assert!(
+            receiver1.try_recv().is_err(),
+            "closed channel should not receive more data"
+        );
+        assert_eq!(receiver2.recv().unwrap(), b"still-open");
+        drop(sender2);
+    }
+
+    #[test]
+    fn cleanup_channel_removes_only_matching_state() {
+        let mut handler = empty_handler();
+        let channel1 = test_channel_id(1);
+        let channel2 = test_channel_id(2);
+        handler.record_pty_request(channel1, "xterm-256color", 80, 24);
+        handler.record_pty_request(channel2, "xterm-256color", 120, 40);
+
+        handler.cleanup_channel(channel1);
+
+        assert!(!handler.channels.contains_key(&channel1));
+        assert!(handler.channels.contains_key(&channel2));
     }
 
     // -----------------------------------------------------------------------

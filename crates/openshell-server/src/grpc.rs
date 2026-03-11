@@ -2801,6 +2801,9 @@ const SSH_CONNECT_INITIAL_BACKOFF: std::time::Duration = std::time::Duration::fr
 
 /// Maximum backoff duration between SSH connection retries (caps exponential growth).
 const SSH_CONNECT_MAX_BACKOFF: std::time::Duration = std::time::Duration::from_secs(2);
+const SSH_PROXY_ACCEPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const SSH_PROXY_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const SSH_PROXY_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Returns `true` if the gRPC status represents a transient SSH connection error
 /// that is worth retrying (e.g. the sandbox SSH server is not yet listening).
@@ -2950,9 +2953,13 @@ async fn run_exec_with_russh(
     stdin_payload: Vec<u8>,
     tx: mpsc::Sender<Result<ExecSandboxEvent, Status>>,
 ) -> Result<i32, Status> {
-    let stream = TcpStream::connect(("127.0.0.1", local_proxy_port))
-        .await
-        .map_err(|e| Status::internal(format!("failed to connect to ssh proxy: {e}")))?;
+    let stream = tokio::time::timeout(
+        SSH_PROXY_ACCEPT_TIMEOUT,
+        TcpStream::connect(("127.0.0.1", local_proxy_port)),
+    )
+    .await
+    .map_err(|_| Status::deadline_exceeded("timed out connecting to ssh proxy"))?
+    .map_err(|e| Status::internal(format!("failed to connect to ssh proxy: {e}")))?;
 
     let config = Arc::new(russh::client::Config::default());
     let mut client = russh::client::connect_stream(config, stream, SandboxSshClientHandler)
@@ -3047,12 +3054,26 @@ async fn start_single_use_ssh_proxy(
     let handshake_secret = handshake_secret.to_string();
 
     let task = tokio::spawn(async move {
-        let Ok((mut client_conn, _)) = listener.accept().await else {
+        let Ok(accept_result) =
+            tokio::time::timeout(SSH_PROXY_ACCEPT_TIMEOUT, listener.accept()).await
+        else {
+            warn!("SSH proxy: timed out waiting for local connection");
+            return;
+        };
+        let Ok((mut client_conn, _)) = accept_result else {
             warn!("SSH proxy: failed to accept local connection");
             return;
         };
-        let Ok(mut sandbox_conn) = TcpStream::connect((target_host.as_str(), target_port)).await
+        let Ok(connect_result) = tokio::time::timeout(
+            SSH_PROXY_CONNECT_TIMEOUT,
+            TcpStream::connect((target_host.as_str(), target_port)),
+        )
+        .await
         else {
+            warn!(target_host = %target_host, target_port, "SSH proxy: timed out connecting to sandbox");
+            return;
+        };
+        let Ok(mut sandbox_conn) = connect_result else {
             warn!(target_host = %target_host, target_port, "SSH proxy: failed to connect to sandbox");
             return;
         };
@@ -3061,12 +3082,36 @@ async fn start_single_use_ssh_proxy(
             warn!("SSH proxy: failed to build handshake preface");
             return;
         };
-        if let Err(e) = sandbox_conn.write_all(preface.as_bytes()).await {
+        if let Err(e) = tokio::time::timeout(
+            SSH_PROXY_HANDSHAKE_TIMEOUT,
+            sandbox_conn.write_all(preface.as_bytes()),
+        )
+        .await
+        .map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "timed out sending handshake preface",
+            )
+        })
+        .and_then(|result| result)
+        {
             warn!(error = %e, "SSH proxy: failed to send handshake preface");
             return;
         }
         let mut response = String::new();
-        if let Err(e) = read_line(&mut sandbox_conn, &mut response).await {
+        let read_response = match tokio::time::timeout(
+            SSH_PROXY_HANDSHAKE_TIMEOUT,
+            read_line(&mut sandbox_conn, &mut response),
+        )
+        .await
+        {
+            Ok(result) => result.map_err(|e| std::io::Error::other(e.to_string())),
+            Err(_) => Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "timed out waiting for handshake response",
+            )),
+        };
+        if let Err(e) = read_response {
             warn!(error = %e, "SSH proxy: failed to read handshake response");
             return;
         }
