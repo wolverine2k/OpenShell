@@ -380,7 +380,7 @@ enum Commands {
         since: Option<String>,
 
         /// Filter by log source: "gateway", "sandbox", or "all" (default).
-        /// Can be specified multiple times: --source gateway --source sandbox
+        /// Can be specified multiple times: --source gateway --source sandbox.
         #[arg(long, default_value = "all")]
         source: Vec<String>,
 
@@ -461,6 +461,13 @@ enum Commands {
     Completions {
         /// Shell to generate completions for.
         shell: CompletionShell,
+    },
+
+    /// Generate documentation from CLI source definitions.
+    #[command(hide = true, help_template = SUBCOMMAND_HELP_TEMPLATE)]
+    Docs {
+        #[command(subcommand)]
+        command: Option<DocsCommands>,
     },
 
     /// SSH proxy (used by `ProxyCommand`).
@@ -1000,6 +1007,13 @@ enum DoctorCommands {
     ///   openshell doctor llm.txt | pbcopy
     #[command(name = "llm.txt", help_template = LEAF_HELP_TEMPLATE)]
     LlmTxt,
+}
+
+#[derive(Subcommand, Debug)]
+enum DocsCommands {
+    /// Print the CLI reference as Markdown.
+    #[command(help_template = LEAF_HELP_TEMPLATE)]
+    CliReference,
 }
 
 #[derive(Subcommand, Debug)]
@@ -2080,6 +2094,20 @@ async fn main() -> Result<()> {
                 .write_all(script.as_bytes())
                 .map_err(|e| miette::miette!("failed to write completions: {e}"))?;
         }
+        Some(Commands::Docs {
+            command: Some(DocsCommands::CliReference),
+        }) => {
+            let md = navigator_cli::cli_reference::generate(&Cli::command());
+            print!("{md}");
+        }
+        Some(Commands::Docs { command: None }) => {
+            Cli::command()
+                .find_subcommand_mut("docs")
+                .expect("docs subcommand exists")
+                .print_help()
+                .expect("Failed to print help");
+        }
+
         Some(Commands::SshProxy {
             gateway,
             sandbox_id,

@@ -223,6 +223,7 @@ inference/configure
 :hidden:
 
 reference/cli
+reference/cli-generated
 reference/default-policy
 reference/policy-schema
 reference/support-matrix
