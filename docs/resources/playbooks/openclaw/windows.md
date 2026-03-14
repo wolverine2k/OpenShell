@@ -53,4 +53,4 @@ Common issues and fixes.
 
 ## Next Steps
 
-- [Related page](link)
+- Related page
