@@ -554,7 +554,7 @@
 </tbody>
 </table>
 </div>
-<p>The cluster image bundles the Helm charts, Kubernetes manifests, and the <code class="docutils literal notranslate"><span class="pre">openshell-sandbox</span></code> supervisor binary required to bootstrap the control plane. The supervisor binary is side-loaded into sandbox pods at runtime via a read-only host volume mount. The gateway image is pulled at cluster startup and runs the API server.</p>
+<p>The cluster image bundles the Helm charts, Kubernetes manifests, and the <code class="docutils literal notranslate"><span class="pre">openshell-sandbox</span></code> supervisor binary required to bootstrap the control plane. The supervisor binary is side-loaded into sandbox pods at runtime through a read-only host volume mount. The gateway image is pulled at cluster startup and runs the API server.</p>
 <p>Sandbox images are maintained separately in the <a class="reference external" href="https://github.com/nvidia/openshell-community" rel="noreferer noopener" target="_blank">openshell-community</a> repository.</p>
 <p>To override the default image references, set the following environment variables:</p>
 <div class="pst-scrollable-table-container"><table class="table">

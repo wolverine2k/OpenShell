@@ -513,6 +513,7 @@
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>curl<span class="w"> </span>-s<span class="w"> </span>https://api.github.com/zen
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">https://api.github.com/zen</span></code> is a lightweight, unauthenticated GitHub REST endpoint that returns a random aphorism on each call. It requires no tokens or parameters, which makes it a convenient smoke-test target for verifying outbound HTTPS connectivity.</p>
 <p>The request fails. By default, all outbound network traffic is denied. The sandbox proxy intercepted the HTTPS CONNECT request to <code class="docutils literal notranslate"><span class="pre">api.github.com:443</span></code> and rejected it because no network policy authorizes <code class="docutils literal notranslate"><span class="pre">curl</span></code> to reach that host.</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>curl: (56) Received HTTP code 403 from proxy after CONNECT
 </pre></div>
@@ -579,8 +580,8 @@
 </ul>
 </div>
 </section>
-<section id="verify-that-get-works">
-<h2>Verify That GET Works<a class="headerlink" href="#verify-that-get-works" title="Link to this heading">#</a></h2>
+<section id="verify-if-get-requests-are-allowed">
+<h2>Verify If GET Requests Are Allowed<a class="headerlink" href="#verify-if-get-requests-are-allowed" title="Link to this heading">#</a></h2>
 <p>The policy is now active. Reconnect to the sandbox and retry the same request to confirm that read access works.</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>sandbox<span class="w"> </span>connect<span class="w"> </span>demo
 </pre></div>
@@ -702,7 +703,7 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#try-to-reach-the-github-api">Try to Reach the GitHub API</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#check-the-deny-log">Check the Deny Log</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#apply-a-read-only-github-api-policy">Apply a Read-Only GitHub API Policy</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#verify-that-get-works">Verify That GET Works</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#verify-if-get-requests-are-allowed">Verify If GET Requests Are Allowed</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#try-a-write">Try a Write</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#check-the-l7-deny-log">Check the L7 Deny Log</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#clean-up">Clean Up</a></li>
