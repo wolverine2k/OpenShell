@@ -235,4 +235,5 @@ reference/support-matrix
 :hidden:
 
 resources/license
+Playbooks <resources/playbooks/index>
 ```
