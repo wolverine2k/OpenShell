@@ -1011,7 +1011,7 @@ fn inject_pod_template(
     mut pod_template: serde_json::Value,
     template: &SandboxTemplate,
     gpu: bool,
-    default_image: &str,
+    _default_image: &str,
     image_pull_policy: &str,
     sandbox_id: &str,
     sandbox_name: &str,

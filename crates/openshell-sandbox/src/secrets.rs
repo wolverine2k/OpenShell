@@ -6,7 +6,7 @@ use std::collections::HashMap;
 const PLACEHOLDER_PREFIX: &str = "openshell:resolve:env:";
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct SecretResolver {
+pub struct SecretResolver {
     by_placeholder: HashMap<String, String>,
 }
 
