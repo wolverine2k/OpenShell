@@ -978,6 +978,26 @@ Dynamic sections can be updated on a running sandbox with <code class="docutils 
 </li>
 </ol>
 </section>
+<section id="global-policy-override">
+<h2>Global Policy Override<a class="headerlink" href="#global-policy-override" title="Link to this heading">#</a></h2>
+<p>Use a global policy when you want one policy payload to apply to every sandbox.</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>policy<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--global<span class="w"> </span>--policy<span class="w"> </span>./global-policy.yaml
+</pre></div>
+</div>
+<p>When a global policy is configured:</p>
+<ul class="simple">
+<li><p>The global payload is applied in full for all sandboxes.</p></li>
+<li><p>Sandbox-level policy updates are rejected until the global policy is removed.</p></li>
+</ul>
+<p>To restore sandbox-level policy control, delete the global policy setting:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>policy<span class="w"> </span>delete<span class="w"> </span>--global
+</pre></div>
+</div>
+<p>You can inspect a sandbox’s effective settings and policy source with:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>settings<span class="w"> </span>get<span class="w"> </span>&lt;name&gt;
+</pre></div>
+</div>
+</section>
 <section id="debug-denied-requests">
 <h2>Debug Denied Requests<a class="headerlink" href="#debug-denied-requests" title="Link to this heading">#</a></h2>
 <p>Check <code class="docutils literal notranslate"><span class="pre">openshell</span> <span class="pre">logs</span> <span class="pre">&lt;name&gt;</span> <span class="pre">--tail</span> <span class="pre">--source</span> <span class="pre">sandbox</span></code> for the denied host, path, and binary.</p>
@@ -1122,6 +1142,7 @@ Granular rules</label><div class="sd-tab-content docutils">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#policy-structure">Policy Structure</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#apply-a-custom-policy">Apply a Custom Policy</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#iterate-on-a-running-sandbox">Iterate on a Running Sandbox</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-policy-override">Global Policy Override</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#debug-denied-requests">Debug Denied Requests</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#examples">Examples</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
