@@ -888,12 +888,7 @@ fn sandbox_template_to_k8s(
     }
 
     let mut spec = serde_json::Map::new();
-    if gpu {
-        spec.insert(
-            "runtimeClassName".to_string(),
-            serde_json::json!(GPU_RUNTIME_CLASS_NAME),
-        );
-    } else if !template.runtime_class_name.is_empty() {
+    if !template.runtime_class_name.is_empty() {
         spec.insert(
             "runtimeClassName".to_string(),
             serde_json::json!(template.runtime_class_name),
@@ -1029,13 +1024,6 @@ fn inject_pod_template(
     else {
         return pod_template;
     };
-
-    if gpu {
-        spec.insert(
-            "runtimeClassName".to_string(),
-            serde_json::json!(GPU_RUNTIME_CLASS_NAME),
-        );
-    }
 
     // Add hostAliases so sandbox pods can reach the Docker host.
     if !host_gateway_ip.is_empty() {
@@ -1829,6 +1817,41 @@ mod tests {
     }
 
     #[test]
+    fn gpu_inject_pod_template_does_not_set_runtime_class() {
+        let pod_template = serde_json::json!({
+            "spec": {
+                "containers": [{"name": "agent"}]
+            }
+        });
+
+        let result = inject_pod_template(
+            pod_template,
+            &SandboxTemplate::default(),
+            true,
+            "openshell/sandbox:latest",
+            "",
+            "sandbox-id",
+            "sandbox-name",
+            "https://gateway.example.com",
+            "0.0.0.0:2222",
+            "secret",
+            300,
+            &std::collections::HashMap::new(),
+            "",
+            "",
+        );
+
+        assert!(
+            result["spec"]["runtimeClassName"].is_null(),
+            "GPU pods using CDI injection must not have runtimeClassName set"
+        );
+        assert_eq!(
+            result["spec"]["containers"][0]["resources"]["limits"][GPU_RESOURCE_NAME],
+            serde_json::json!(GPU_RESOURCE_QUANTITY)
+        );
+    }
+
+    #[test]
     fn gpu_sandbox_adds_runtime_class_and_gpu_limit() {
         let pod_template = sandbox_template_to_k8s(
             &SandboxTemplate::default(),
@@ -1848,7 +1871,7 @@ mod tests {
 
         assert_eq!(
             pod_template["spec"]["runtimeClassName"],
-            serde_json::json!(GPU_RUNTIME_CLASS_NAME)
+            serde_json::Value::Null
         );
         assert_eq!(
             pod_template["spec"]["containers"][0]["resources"]["limits"][GPU_RESOURCE_NAME],
@@ -1954,7 +1977,7 @@ mod tests {
 
         assert_eq!(
             pod_template["spec"]["runtimeClassName"],
-            serde_json::json!(GPU_RUNTIME_CLASS_NAME)
+            serde_json::Value::Null
         );
         assert_eq!(
             pod_template["spec"]["containers"][0]["resources"]["limits"][GPU_RESOURCE_NAME],
