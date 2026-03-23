@@ -62,7 +62,7 @@ PUSH_ARGS=()
 if [ "${CONTAINER_CMD}" = "podman" ]; then
   PUSH_ARGS+=(--tls-verify=false)
 fi
-"${CONTAINER_CMD}" push "${PUSH_ARGS[@]}" "${TARGET_IMAGE}"
+"${CONTAINER_CMD}" push ${PUSH_ARGS[@]+"${PUSH_ARGS[@]}"} "${TARGET_IMAGE}"
 
 # Evict the stale image from k3s's containerd cache so new pods pull the
 # updated image. Without this, k3s uses its cached copy (imagePullPolicy
