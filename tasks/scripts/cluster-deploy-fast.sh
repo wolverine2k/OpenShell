@@ -91,7 +91,9 @@ fi
 
 declare -a changed_files=()
 detect_start=$(date +%s)
-mapfile -t changed_files < <(
+while IFS= read -r _f; do
+  changed_files+=("$_f")
+done < <(
   {
     git diff --name-only
     git diff --name-only --cached
