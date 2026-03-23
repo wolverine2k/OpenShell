@@ -28,8 +28,27 @@ normalize_name() {
   echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
 }
 
+# Discover the host port the local registry container is actually bound to.
+discover_local_registry_port() {
+  local _container="openshell-local-registry"
+  local _port
+  _port=$("${CONTAINER_CMD}" port "${_container}" 5000/tcp 2>/dev/null \
+    | awk -F: '{print $NF}' | head -1 || true)
+  if [ -n "${_port}" ] && [ "${_port}" != "0" ]; then
+    echo "${_port}"; return
+  fi
+  _port=$("${CONTAINER_CMD}" inspect "${_container}" \
+    --format '{{range $p, $b := .HostConfig.PortBindings}}{{if eq $p "5000/tcp"}}{{range $b}}{{.HostPort}}{{end}}{{end}}{{end}}' \
+    2>/dev/null || true)
+  if [ -n "${_port}" ] && [ "${_port}" != "0" ]; then
+    echo "${_port}"; return
+  fi
+  echo "5000"
+}
+
 IMAGE_TAG=${IMAGE_TAG:-dev}
-IMAGE_REPO_BASE=${IMAGE_REPO_BASE:-${OPENSHELL_REGISTRY:-127.0.0.1:5000/openshell}}
+_local_registry_port=$(discover_local_registry_port)
+IMAGE_REPO_BASE=${IMAGE_REPO_BASE:-${OPENSHELL_REGISTRY:-127.0.0.1:${_local_registry_port}/openshell}}
 CLUSTER_NAME=${CLUSTER_NAME:-$(basename "$PWD")}
 CLUSTER_NAME=$(normalize_name "${CLUSTER_NAME}")
 CONTAINER_NAME="openshell-cluster-${CLUSTER_NAME}"
