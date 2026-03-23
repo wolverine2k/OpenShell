@@ -181,17 +181,40 @@ BUILD_ARGS=(
 if [[ "${CONTAINER_CMD}" = "podman" ]]; then
   # Podman uses podman build (buildah-backed). No buildx, no builder selection,
   # no cache-from/to, no --provenance flag. Native arch only for MVP.
-  "${CONTAINER_CMD}" build \
-    ${DOCKER_PLATFORM:+--platform "${DOCKER_PLATFORM}"} \
-    --layers \
-    --format docker \
-    -f "${DOCKERFILE}" \
-    --target "${DOCKER_TARGET}" \
-    ${TAG_ARGS[@]+"${TAG_ARGS[@]}"} \
-    "${BUILD_ARGS[@]}" \
-    "$@" \
-    ${OUTPUT_ARGS[@]+"${OUTPUT_ARGS[@]}"} \
-    .
+  #
+  # --output type=local,dest=PATH is not supported by Podman. Instead, build
+  # to a temporary tag and extract files via `podman create` + `podman cp`.
+  if [[ -n "${DOCKER_OUTPUT:-}" ]]; then
+    _podman_dest=$(echo "${DOCKER_OUTPUT}" | sed 's/.*dest=//')
+    _podman_tmp_tag="openshell-build-output-$$"
+    "${CONTAINER_CMD}" build \
+      ${DOCKER_PLATFORM:+--platform "${DOCKER_PLATFORM}"} \
+      --layers \
+      --format docker \
+      -f "${DOCKERFILE}" \
+      --target "${DOCKER_TARGET}" \
+      "${BUILD_ARGS[@]}" \
+      "$@" \
+      -t "${_podman_tmp_tag}" \
+      .
+    mkdir -p "${_podman_dest}"
+    _podman_ctr=$("${CONTAINER_CMD}" create "${_podman_tmp_tag}")
+    "${CONTAINER_CMD}" cp "${_podman_ctr}:/." "${_podman_dest}/"
+    "${CONTAINER_CMD}" rm "${_podman_ctr}" >/dev/null
+    "${CONTAINER_CMD}" rmi "${_podman_tmp_tag}" >/dev/null 2>&1 || true
+  else
+    "${CONTAINER_CMD}" build \
+      ${DOCKER_PLATFORM:+--platform "${DOCKER_PLATFORM}"} \
+      --layers \
+      --format docker \
+      -f "${DOCKERFILE}" \
+      --target "${DOCKER_TARGET}" \
+      ${TAG_ARGS[@]+"${TAG_ARGS[@]}"} \
+      "${BUILD_ARGS[@]}" \
+      "$@" \
+      ${OUTPUT_ARGS[@]+"${OUTPUT_ARGS[@]}"} \
+      .
+  fi
 else
   # Docker buildx (existing logic)
   docker buildx build \
