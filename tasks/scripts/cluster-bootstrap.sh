@@ -13,6 +13,75 @@ normalize_name() {
   echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
 }
 
+port_is_in_use() {
+  local port=$1
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1
+    return $?
+  fi
+
+  if command -v nc >/dev/null 2>&1; then
+    nc -z 127.0.0.1 "${port}" >/dev/null 2>&1
+    return $?
+  fi
+
+  (echo >/dev/tcp/127.0.0.1/"${port}") >/dev/null 2>&1
+}
+
+pick_random_port() {
+  local lower=20000
+  local upper=60999
+  local attempts=256
+  local port
+
+  for _ in $(seq 1 "${attempts}"); do
+    port=$((RANDOM % (upper - lower + 1) + lower))
+    if ! port_is_in_use "${port}"; then
+      echo "${port}"
+      return 0
+    fi
+  done
+
+  echo "Error: could not find a free port after ${attempts} attempts." >&2
+  return 1
+}
+
+# Resolve the port for the local registry container.
+# - If the registry container already exists, reuse the port it is mapped to.
+# - If port 5000 is free, use it.
+# - Otherwise, scan 5001-5099 for a free port (e.g. macOS AirPlay Receiver owns 5000).
+resolve_registry_port() {
+  local _container="${LOCAL_REGISTRY_CONTAINER:-openshell-local-registry}"
+
+  if "${CONTAINER_CMD}" inspect "${_container}" >/dev/null 2>&1; then
+    local _mapped
+    _mapped=$("${CONTAINER_CMD}" port "${_container}" 5000/tcp 2>/dev/null \
+      | awk -F: '{print $NF}' | head -1 || true)
+    if [ -n "${_mapped}" ] && [ "${_mapped}" != "0" ]; then
+      echo "${_mapped}"
+      return
+    fi
+  fi
+
+  if ! port_is_in_use 5000; then
+    echo 5000
+    return
+  fi
+
+  local _alt
+  for _alt in $(seq 5001 5099); do
+    if ! port_is_in_use "${_alt}"; then
+      echo "Port 5000 is already in use by another process (e.g. macOS AirPlay Receiver)." >&2
+      echo "Using port ${_alt} for the local registry instead." >&2
+      echo "To free port 5000: System Settings → General → AirDrop & Handoff → disable AirPlay Receiver." >&2
+      echo "${_alt}"
+      return
+    fi
+  done
+
+  pick_random_port
+}
+
 MODE=${1:-build}
 if [ "${MODE}" != "build" ] && [ "${MODE}" != "fast" ]; then
   echo "usage: $0 [build|fast]" >&2
@@ -27,7 +96,8 @@ fi
 ENV_FILE=.env
 PUBLISHED_IMAGE_REPO_BASE_DEFAULT=ghcr.io/nvidia/openshell
 LOCAL_REGISTRY_CONTAINER=openshell-local-registry
-LOCAL_REGISTRY_ADDR=127.0.0.1:5000
+LOCAL_REGISTRY_PORT=$(resolve_registry_port)
+LOCAL_REGISTRY_ADDR=127.0.0.1:${LOCAL_REGISTRY_PORT}
 
 if [ -n "${CI:-}" ] && [ -n "${CI_REGISTRY_IMAGE:-}" ]; then
   IMAGE_REPO_BASE_DEFAULT=${CI_REGISTRY_IMAGE}
@@ -66,39 +136,6 @@ append_env_if_missing() {
   printf "%s=%s\n" "${key}" "${value}" >>"${ENV_FILE}"
 }
 
-port_is_in_use() {
-  local port=$1
-  if command -v lsof >/dev/null 2>&1; then
-    lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1
-    return $?
-  fi
-
-  if command -v nc >/dev/null 2>&1; then
-    nc -z 127.0.0.1 "${port}" >/dev/null 2>&1
-    return $?
-  fi
-
-  (echo >/dev/tcp/127.0.0.1/"${port}") >/dev/null 2>&1
-}
-
-pick_random_port() {
-  local lower=20000
-  local upper=60999
-  local attempts=256
-  local port
-
-  for _ in $(seq 1 "${attempts}"); do
-    port=$((RANDOM % (upper - lower + 1) + lower))
-    if ! port_is_in_use "${port}"; then
-      echo "${port}"
-      return 0
-    fi
-  done
-
-  echo "Error: could not find a free port after ${attempts} attempts." >&2
-  return 1
-}
-
 CLUSTER_NAME=${CLUSTER_NAME:-$(basename "$PWD")}
 CLUSTER_NAME=$(normalize_name "${CLUSTER_NAME}")
 
@@ -121,12 +158,13 @@ export GATEWAY_PORT
 export OPENSHELL_GATEWAY
 
 is_local_registry_host() {
-  [ "${REGISTRY_HOST}" = "127.0.0.1:5000" ] || [ "${REGISTRY_HOST}" = "localhost:5000" ]
+  [ "${REGISTRY_HOST}" = "127.0.0.1:${LOCAL_REGISTRY_PORT}" ] || \
+  [ "${REGISTRY_HOST}" = "localhost:${LOCAL_REGISTRY_PORT}" ]
 }
 
 registry_reachable() {
-  curl -4 -fsS --max-time 2 "http://127.0.0.1:5000/v2/" >/dev/null 2>&1 || \
-    curl -4 -fsS --max-time 2 "http://localhost:5000/v2/" >/dev/null 2>&1
+  curl -4 -fsS --max-time 2 "http://127.0.0.1:${LOCAL_REGISTRY_PORT}/v2/" >/dev/null 2>&1 || \
+    curl -4 -fsS --max-time 2 "http://localhost:${LOCAL_REGISTRY_PORT}/v2/" >/dev/null 2>&1
 }
 
 wait_for_registry_ready() {
@@ -154,7 +192,7 @@ ensure_local_registry() {
   fi
 
   if ! "${CONTAINER_CMD}" inspect "${LOCAL_REGISTRY_CONTAINER}" >/dev/null 2>&1; then
-    "${CONTAINER_CMD}" run -d --restart=always --name "${LOCAL_REGISTRY_CONTAINER}" -p 5000:5000 registry:2 >/dev/null
+    "${CONTAINER_CMD}" run -d --restart=always --name "${LOCAL_REGISTRY_CONTAINER}" -p "${LOCAL_REGISTRY_PORT}:5000" registry:2 >/dev/null
   else
     if ! "${CONTAINER_CMD}" ps --filter "name=^${LOCAL_REGISTRY_CONTAINER}$" --filter "status=running" -q | grep -q .; then
       "${CONTAINER_CMD}" start "${LOCAL_REGISTRY_CONTAINER}" >/dev/null
@@ -162,11 +200,11 @@ ensure_local_registry() {
 
     port_map=$("${CONTAINER_CMD}" port "${LOCAL_REGISTRY_CONTAINER}" 5000/tcp 2>/dev/null || true)
     case "${port_map}" in
-      *:5000*)
+      *:"${LOCAL_REGISTRY_PORT}")
         ;;
       *)
         "${CONTAINER_CMD}" rm -f "${LOCAL_REGISTRY_CONTAINER}" >/dev/null 2>&1 || true
-        "${CONTAINER_CMD}" run -d --restart=always --name "${LOCAL_REGISTRY_CONTAINER}" -p 5000:5000 registry:2 >/dev/null
+        "${CONTAINER_CMD}" run -d --restart=always --name "${LOCAL_REGISTRY_CONTAINER}" -p "${LOCAL_REGISTRY_PORT}:5000" registry:2 >/dev/null
         ;;
     esac
   fi
@@ -180,7 +218,7 @@ ensure_local_registry() {
   fi
 
   echo "Error: local registry is not reachable at ${REGISTRY_HOST}." >&2
-  echo "       Ensure a registry is running on port 5000 (e.g. ${CONTAINER_CMD} run -d --name openshell-local-registry -p 5000:5000 registry:2)." >&2
+  echo "       Ensure a registry is running on port ${LOCAL_REGISTRY_PORT} (e.g. ${CONTAINER_CMD} run -d --name openshell-local-registry -p ${LOCAL_REGISTRY_PORT}:5000 registry:2)." >&2
   "${CONTAINER_CMD}" ps -a >&2 || true
   "${CONTAINER_CMD}" logs "${LOCAL_REGISTRY_CONTAINER}" >&2 || true
   exit 1
@@ -188,7 +226,11 @@ ensure_local_registry() {
 
 REGISTRY_ENDPOINT_DEFAULT=${REGISTRY_HOST}
 if is_local_registry_host; then
-  REGISTRY_ENDPOINT_DEFAULT=host.docker.internal:5000
+  if [ "${CONTAINER_CMD}" = "podman" ]; then
+    REGISTRY_ENDPOINT_DEFAULT=host.containers.internal:${LOCAL_REGISTRY_PORT}
+  else
+    REGISTRY_ENDPOINT_DEFAULT=host.docker.internal:${LOCAL_REGISTRY_PORT}
+  fi
 fi
 
 REGISTRY_INSECURE_DEFAULT=false
