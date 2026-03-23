@@ -340,12 +340,13 @@ pub async fn sandbox_forward(
         command.status().await.into_diagnostic()?
     } else {
         let mut child = command.spawn().into_diagnostic()?;
-        match tokio::time::timeout(FOREGROUND_FORWARD_STARTUP_GRACE_PERIOD, child.wait()).await {
-            Ok(status) => status.into_diagnostic()?,
-            Err(_) => {
-                eprintln!("{}", foreground_forward_started_message(name, spec));
-                child.wait().await.into_diagnostic()?
-            }
+        if let Ok(status) =
+            tokio::time::timeout(FOREGROUND_FORWARD_STARTUP_GRACE_PERIOD, child.wait()).await
+        {
+            status.into_diagnostic()?
+        } else {
+            eprintln!("{}", foreground_forward_started_message(name, spec));
+            child.wait().await.into_diagnostic()?
         }
     };
 
@@ -866,8 +867,7 @@ fn upsert_host_block(contents: &str, alias: &str, block: &str) -> String {
             .enumerate()
             .skip(start + 1)
             .find(|(_, line)| line.trim_start().starts_with("Host "))
-            .map(|(idx, _)| idx)
-            .unwrap_or(lines.len());
+            .map_or(lines.len(), |(idx, _)| idx);
 
         out.extend_from_slice(&lines[..start]);
         if !out.is_empty() && !out.last().is_some_and(|line| line.is_empty()) {

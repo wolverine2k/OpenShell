@@ -148,17 +148,16 @@ pub fn validate_l7_policies(data_json: &serde_json::Value) -> (Vec<String>, Vec<
             let host = ep.get("host").and_then(|v| v.as_str()).unwrap_or("");
 
             // Read ports from either "ports" array or scalar "port".
-            let ports: Vec<u64> = ep
-                .get("ports")
-                .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect())
-                .unwrap_or_else(|| {
+            let ports: Vec<u64> = ep.get("ports").and_then(|v| v.as_array()).map_or_else(
+                || {
                     ep.get("port")
                         .and_then(serde_json::Value::as_u64)
                         .filter(|p| *p > 0)
                         .into_iter()
                         .collect()
-                });
+                },
+                |arr| arr.iter().filter_map(serde_json::Value::as_u64).collect(),
+            );
             let loc = format!("{name}.endpoints[{i}]");
 
             // Validate host wildcard patterns.

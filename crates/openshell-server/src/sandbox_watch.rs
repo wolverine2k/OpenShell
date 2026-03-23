@@ -174,6 +174,16 @@ fn map_kube_event_to_platform(
     ))
 }
 
+/// Helper to translate broadcast lag into a gRPC status.
+pub fn broadcast_to_status(err: broadcast::error::RecvError) -> Status {
+    match err {
+        broadcast::error::RecvError::Closed => Status::cancelled("stream closed"),
+        broadcast::error::RecvError::Lagged(n) => {
+            Status::resource_exhausted(format!("watch stream lagged; dropped {n} messages"))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,15 +228,5 @@ mod tests {
         let bus = SandboxWatchBus::new();
         // Should not panic
         bus.remove("nonexistent");
-    }
-}
-
-/// Helper to translate broadcast lag into a gRPC status.
-pub fn broadcast_to_status(err: broadcast::error::RecvError) -> Status {
-    match err {
-        broadcast::error::RecvError::Closed => Status::cancelled("stream closed"),
-        broadcast::error::RecvError::Lagged(n) => {
-            Status::resource_exhausted(format!("watch stream lagged; dropped {n} messages"))
-        }
     }
 }

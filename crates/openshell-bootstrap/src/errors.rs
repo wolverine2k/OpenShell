@@ -341,7 +341,9 @@ fn diagnose_node_pressure(gateway_name: &str) -> GatewayFailureDiagnosis {
                 "docker system prune -a --volumes",
             ),
             RecoveryStep::with_command("Check available memory on the host", "free -h"),
-            RecoveryStep::new("Increase container runtime resource allocation or free resources on the host"),
+            RecoveryStep::new(
+                "Increase container runtime resource allocation or free resources on the host",
+            ),
             RecoveryStep::with_command(
                 "Destroy and recreate the gateway after freeing resources",
                 format!(
@@ -403,7 +405,9 @@ fn diagnose_docker_not_running(_gateway_name: &str) -> GatewayFailureDiagnosis {
             a Docker-compatible container runtime (Docker or Podman) to manage gateway clusters."
             .to_string(),
         recovery_steps: vec![
-            RecoveryStep::new("Start your container runtime (Docker Desktop, Podman, Colima, OrbStack, etc.)"),
+            RecoveryStep::new(
+                "Start your container runtime (Docker Desktop, Podman, Colima, OrbStack, etc.)",
+            ),
             RecoveryStep::with_command("Verify Docker is accessible", "docker info"),
             RecoveryStep::new(
                 "If using Podman, set DOCKER_HOST to the Podman socket:\n     \

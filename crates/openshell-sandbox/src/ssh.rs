@@ -641,8 +641,10 @@ fn session_user_and_home(policy: &SandboxPolicy) -> (String, String) {
             let home = nix::unistd::User::from_name(user)
                 .ok()
                 .flatten()
-                .map(|u| u.dir.to_string_lossy().into_owned())
-                .unwrap_or_else(|| format!("/home/{user}"));
+                .map_or_else(
+                    || format!("/home/{user}"),
+                    |u| u.dir.to_string_lossy().into_owned(),
+                );
             (user.to_string(), home)
         }
         _ => ("sandbox".to_string(), "/sandbox".to_string()),
@@ -1131,7 +1133,7 @@ mod tests {
     }
 
     /// Verify that the stdin writer delivers all buffered data before exiting
-    /// when the sender is dropped.  This ensures channel_eof doesn't cause
+    /// when the sender is dropped.  This ensures `channel_eof` doesn't cause
     /// data loss — only signals "no more data after this".
     #[test]
     fn stdin_writer_delivers_buffered_data_before_eof() {

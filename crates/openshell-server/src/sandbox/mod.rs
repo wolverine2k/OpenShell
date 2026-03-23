@@ -998,10 +998,7 @@ fn container_resources(template: &SandboxTemplate, gpu: bool) -> Option<serde_js
     if gpu {
         apply_gpu_limit(&mut resources);
     }
-    if resources
-        .as_object()
-        .is_some_and(|object| object.is_empty())
-    {
+    if resources.as_object().is_some_and(serde_json::Map::is_empty) {
         None
     } else {
         Some(resources)
@@ -1578,7 +1575,7 @@ mod tests {
             .expect("command should be set");
         assert_eq!(
             command[0].as_str().unwrap(),
-            format!("{}/openshell-sandbox", SUPERVISOR_MOUNT_PATH)
+            format!("{SUPERVISOR_MOUNT_PATH}/openshell-sandbox")
         );
 
         // Volume mount should be read-only

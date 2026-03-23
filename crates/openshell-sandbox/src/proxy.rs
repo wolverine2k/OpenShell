@@ -421,7 +421,33 @@ async fn handle_tcp_connection(
     let raw_allowed_ips = query_allowed_ips(&opa_engine, &decision, &host_lc, port);
 
     // Defense-in-depth: resolve DNS and reject connections to internal IPs.
-    let mut upstream = if !raw_allowed_ips.is_empty() {
+    let mut upstream = if raw_allowed_ips.is_empty() {
+        // Default: reject all internal IPs (loopback, RFC 1918, link-local).
+        match resolve_and_reject_internal(&host, port).await {
+            Ok(addrs) => TcpStream::connect(addrs.as_slice())
+                .await
+                .into_diagnostic()?,
+            Err(reason) => {
+                warn!(
+                    dst_host = %host_lc,
+                    dst_port = port,
+                    reason = %reason,
+                    "CONNECT blocked: internal address"
+                );
+                emit_denial(
+                    &denial_tx,
+                    &host_lc,
+                    port,
+                    &binary_str,
+                    &decision,
+                    &reason,
+                    "ssrf",
+                );
+                respond(&mut client, b"HTTP/1.1 403 Forbidden\r\n\r\n").await?;
+                return Ok(());
+            }
+        }
+    } else {
         // allowed_ips mode: validate resolved IPs against CIDR allowlist.
         // Loopback and link-local are still always blocked.
         match parse_allowed_ips(&raw_allowed_ips) {
@@ -455,32 +481,6 @@ async fn handle_tcp_connection(
                     dst_port = port,
                     reason = %reason,
                     "CONNECT blocked: invalid allowed_ips in policy"
-                );
-                emit_denial(
-                    &denial_tx,
-                    &host_lc,
-                    port,
-                    &binary_str,
-                    &decision,
-                    &reason,
-                    "ssrf",
-                );
-                respond(&mut client, b"HTTP/1.1 403 Forbidden\r\n\r\n").await?;
-                return Ok(());
-            }
-        }
-    } else {
-        // Default: reject all internal IPs (loopback, RFC 1918, link-local).
-        match resolve_and_reject_internal(&host, port).await {
-            Ok(addrs) => TcpStream::connect(addrs.as_slice())
-                .await
-                .into_diagnostic()?,
-            Err(reason) => {
-                warn!(
-                    dst_host = %host_lc,
-                    dst_port = port,
-                    reason = %reason,
-                    "CONNECT blocked: internal address"
                 );
                 emit_denial(
                     &denial_tx,
@@ -1294,7 +1294,7 @@ fn parse_allowed_ips(raw: &[String]) -> std::result::Result<Vec<ipnet::IpNet>, S
 
         match parsed {
             Ok(n) => nets.push(n),
-            Err(_) => errors.push(format!("invalid CIDR/IP in allowed_ips: {entry}")),
+            Err(()) => errors.push(format!("invalid CIDR/IP in allowed_ips: {entry}")),
         }
     }
 
@@ -1305,7 +1305,7 @@ fn parse_allowed_ips(raw: &[String]) -> std::result::Result<Vec<ipnet::IpNet>, S
     }
 }
 
-/// Query allowed_ips from the matched endpoint config for a CONNECT decision.
+/// Query `allowed_ips` from the matched endpoint config for a CONNECT decision.
 fn query_allowed_ips(
     engine: &OpaEngine,
     decision: &ConnectDecision,
@@ -1359,15 +1359,12 @@ fn normalize_inference_path(path: &str) -> String {
 fn extract_host_from_uri(uri: &str) -> String {
     // Absolute-form URIs look like "http://host[:port]/path"
     // Strip the scheme prefix, then extract the authority (host[:port]) before the first '/'.
-    let after_scheme = uri.find("://").map(|i| &uri[i + 3..]).unwrap_or(uri);
+    let after_scheme = uri.find("://").map_or(uri, |i| &uri[i + 3..]);
     let authority = after_scheme.split('/').next().unwrap_or(after_scheme);
     // Strip port if present (handle IPv6 bracket notation)
     let host = if authority.starts_with('[') {
         // IPv6: [::1]:port
-        authority
-            .find(']')
-            .map(|i| &authority[..=i])
-            .unwrap_or(authority)
+        authority.find(']').map_or(authority, |i| &authority[..=i])
     } else {
         authority.split(':').next().unwrap_or(authority)
     };
@@ -1408,7 +1405,7 @@ fn parse_proxy_uri(uri: &str) -> Result<(String, String, u16, String)> {
                 &after_bracket[slash_pos..],
             )
         } else {
-            (&rest[..], "/")
+            (rest, "/")
         }
     } else if let Some(slash_pos) = rest.find('/') {
         (&rest[..slash_pos], &rest[slash_pos..])
@@ -1709,7 +1706,31 @@ async fn handle_forward_proxy(
     //    - If allowed_ips is empty: reject internal IPs, allow public IPs through.
     let raw_allowed_ips = query_allowed_ips(&opa_engine, &decision, &host_lc, port);
 
-    let addrs = if !raw_allowed_ips.is_empty() {
+    let addrs = if raw_allowed_ips.is_empty() {
+        // No allowed_ips: reject internal IPs, allow public IPs through.
+        match resolve_and_reject_internal(&host, port).await {
+            Ok(addrs) => addrs,
+            Err(reason) => {
+                warn!(
+                    dst_host = %host_lc,
+                    dst_port = port,
+                    reason = %reason,
+                    "FORWARD blocked: internal IP without allowed_ips"
+                );
+                emit_denial_simple(
+                    denial_tx,
+                    &host_lc,
+                    port,
+                    &binary_str,
+                    &decision,
+                    &reason,
+                    "ssrf",
+                );
+                respond(client, b"HTTP/1.1 403 Forbidden\r\n\r\n").await?;
+                return Ok(());
+            }
+        }
+    } else {
         // allowed_ips mode: validate resolved IPs against CIDR allowlist.
         match parse_allowed_ips(&raw_allowed_ips) {
             Ok(nets) => match resolve_and_check_allowed_ips(&host, port, &nets).await {
@@ -1740,30 +1761,6 @@ async fn handle_forward_proxy(
                     dst_port = port,
                     reason = %reason,
                     "FORWARD blocked: invalid allowed_ips in policy"
-                );
-                emit_denial_simple(
-                    denial_tx,
-                    &host_lc,
-                    port,
-                    &binary_str,
-                    &decision,
-                    &reason,
-                    "ssrf",
-                );
-                respond(client, b"HTTP/1.1 403 Forbidden\r\n\r\n").await?;
-                return Ok(());
-            }
-        }
-    } else {
-        // No allowed_ips: reject internal IPs, allow public IPs through.
-        match resolve_and_reject_internal(&host, port).await {
-            Ok(addrs) => addrs,
-            Err(reason) => {
-                warn!(
-                    dst_host = %host_lc,
-                    dst_port = port,
-                    reason = %reason,
-                    "FORWARD blocked: internal IP without allowed_ips"
                 );
                 emit_denial_simple(
                     denial_tx,

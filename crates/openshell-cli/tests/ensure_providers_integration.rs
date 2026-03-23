@@ -257,9 +257,9 @@ impl OpenShell for TestOpenShell {
             .cloned()
             .ok_or_else(|| Status::not_found("provider not found"))?;
         // Merge semantics: empty map = no change, empty value = delete key.
-        let merge = |mut base: std::collections::HashMap<String, String>,
-                     incoming: std::collections::HashMap<String, String>|
-         -> std::collections::HashMap<String, String> {
+        let merge = |mut base: HashMap<String, String>,
+                     incoming: HashMap<String, String>|
+         -> HashMap<String, String> {
             if incoming.is_empty() {
                 return base;
             }

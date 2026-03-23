@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! OpenShell Sandbox library.
+//! `OpenShell` Sandbox library.
 //!
 //! This crate provides process sandboxing and monitoring capabilities.
 
@@ -995,45 +995,41 @@ async fn load_policy(
         );
         let proto_policy = grpc_client::fetch_policy(endpoint, id).await?;
 
-        let mut proto_policy = match proto_policy {
-            Some(p) => p,
-            None => {
-                // No policy configured on the server. Discover from disk or
-                // fall back to the restrictive default, then sync to the
-                // gateway so it becomes the authoritative baseline.
-                info!("Server returned no policy; attempting local discovery");
-                let mut discovered = discover_policy_from_disk_or_default();
-                // Enrich before syncing so the gateway baseline includes
-                // baseline paths from the start.
-                enrich_proto_baseline_paths(&mut discovered);
-                let sandbox = sandbox.as_deref().ok_or_else(|| {
-                    miette::miette!(
-                        "Cannot sync discovered policy: sandbox not available.\n\
-                         Set OPENSHELL_SANDBOX or --sandbox to enable policy sync."
-                    )
-                })?;
+        let mut proto_policy = if let Some(p) = proto_policy {
+            p
+        } else {
+            // No policy configured on the server. Discover from disk or
+            // fall back to the restrictive default, then sync to the
+            // gateway so it becomes the authoritative baseline.
+            info!("Server returned no policy; attempting local discovery");
+            let mut discovered = discover_policy_from_disk_or_default();
+            // Enrich before syncing so the gateway baseline includes
+            // baseline paths from the start.
+            enrich_proto_baseline_paths(&mut discovered);
+            let sandbox = sandbox.as_deref().ok_or_else(|| {
+                miette::miette!(
+                    "Cannot sync discovered policy: sandbox not available.\n\
+                     Set OPENSHELL_SANDBOX or --sandbox to enable policy sync."
+                )
+            })?;
 
-                // Sync and re-fetch over a single connection to avoid extra
-                // TLS handshakes.
-                grpc_client::discover_and_sync_policy(endpoint, id, sandbox, &discovered).await?
-            }
+            // Sync and re-fetch over a single connection to avoid extra
+            // TLS handshakes.
+            grpc_client::discover_and_sync_policy(endpoint, id, sandbox, &discovered).await?
         };
 
         // Ensure baseline filesystem paths are present for proxy-mode
         // sandboxes.  If the policy was enriched, sync the updated version
         // back to the gateway so users can see the effective policy.
         let enriched = enrich_proto_baseline_paths(&mut proto_policy);
-        if enriched {
-            if let Some(sandbox_name) = sandbox.as_deref() {
-                if let Err(e) =
-                    grpc_client::sync_policy(endpoint, sandbox_name, &proto_policy).await
-                {
-                    warn!(
-                        error = %e,
-                        "Failed to sync enriched policy back to gateway (non-fatal)"
-                    );
-                }
-            }
+        if enriched
+            && let Some(sandbox_name) = sandbox.as_deref()
+            && let Err(e) = grpc_client::sync_policy(endpoint, sandbox_name, &proto_policy).await
+        {
+            warn!(
+                error = %e,
+                "Failed to sync enriched policy back to gateway (non-fatal)"
+            );
         }
 
         // Build OPA engine from baked-in rules + typed proto data.
@@ -1080,44 +1076,41 @@ fn discover_policy_from_path(path: &std::path::Path) -> openshell_core::proto::S
         parse_sandbox_policy, restrictive_default_policy, validate_sandbox_policy,
     };
 
-    match std::fs::read_to_string(path) {
-        Ok(yaml) => {
-            info!(
-                path = %path.display(),
-                "Loaded sandbox policy from container disk"
-            );
-            match parse_sandbox_policy(&yaml) {
-                Ok(policy) => {
-                    // Validate the disk-loaded policy for safety.
-                    if let Err(violations) = validate_sandbox_policy(&policy) {
-                        let messages: Vec<String> =
-                            violations.iter().map(ToString::to_string).collect();
-                        warn!(
-                            path = %path.display(),
-                            violations = %messages.join("; "),
-                            "Disk policy contains unsafe content, using restrictive default"
-                        );
-                        return restrictive_default_policy();
-                    }
-                    policy
-                }
-                Err(e) => {
+    if let Ok(yaml) = std::fs::read_to_string(path) {
+        info!(
+            path = %path.display(),
+            "Loaded sandbox policy from container disk"
+        );
+        match parse_sandbox_policy(&yaml) {
+            Ok(policy) => {
+                // Validate the disk-loaded policy for safety.
+                if let Err(violations) = validate_sandbox_policy(&policy) {
+                    let messages: Vec<String> =
+                        violations.iter().map(ToString::to_string).collect();
                     warn!(
                         path = %path.display(),
-                        error = %e,
-                        "Failed to parse disk policy, using restrictive default"
+                        violations = %messages.join("; "),
+                        "Disk policy contains unsafe content, using restrictive default"
                     );
-                    restrictive_default_policy()
+                    return restrictive_default_policy();
                 }
+                policy
+            }
+            Err(e) => {
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "Failed to parse disk policy, using restrictive default"
+                );
+                restrictive_default_policy()
             }
         }
-        Err(_) => {
-            info!(
-                path = %path.display(),
-                "No policy file on disk, using restrictive default"
-            );
-            restrictive_default_policy()
-        }
+    } else {
+        info!(
+            path = %path.display(),
+            "No policy file on disk, using restrictive default"
+        );
+        restrictive_default_policy()
     }
 }
 
@@ -1254,7 +1247,7 @@ async fn flush_proposals_to_gateway(
         .map(|s| DenialSummary {
             sandbox_id: String::new(),
             host: s.host,
-            port: s.port as u32,
+            port: u32::from(s.port),
             binary: s.binary,
             ancestors: s.ancestors,
             deny_reason: s.deny_reason,
@@ -1389,13 +1382,13 @@ async fn run_policy_poll_loop(
                             "Policy reloaded successfully"
                         );
                     }
-                    if result.version > 0 && result.policy_source == PolicySource::Sandbox {
-                        if let Err(e) = client
+                    if result.version > 0
+                        && result.policy_source == PolicySource::Sandbox
+                        && let Err(e) = client
                             .report_policy_status(sandbox_id, result.version, true, "")
                             .await
-                        {
-                            warn!(error = %e, "Failed to report policy load success");
-                        }
+                    {
+                        warn!(error = %e, "Failed to report policy load success");
                     }
                 }
                 Err(e) => {
@@ -1404,13 +1397,13 @@ async fn run_policy_poll_loop(
                         error = %e,
                         "Policy reload failed, keeping last-known-good policy"
                     );
-                    if result.version > 0 && result.policy_source == PolicySource::Sandbox {
-                        if let Err(report_err) = client
+                    if result.version > 0
+                        && result.policy_source == PolicySource::Sandbox
+                        && let Err(report_err) = client
                             .report_policy_status(sandbox_id, result.version, false, &e.to_string())
                             .await
-                        {
-                            warn!(error = %report_err, "Failed to report policy load failure");
-                        }
+                    {
+                        warn!(error = %report_err, "Failed to report policy load failure");
                     }
                 }
             }
@@ -1584,14 +1577,14 @@ mod tests {
     async fn build_inference_context_route_file_loads_routes() {
         use std::io::Write;
 
-        let yaml = r#"
+        let yaml = r"
 routes:
   - name: inference.local
     endpoint: http://localhost:8000/v1
     model: llama-3
     protocols: [openai_chat_completions]
     api_key: test-key
-"#;
+";
         let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(yaml.as_bytes()).unwrap();
         let path = f.path().to_str().unwrap();
@@ -1639,14 +1632,14 @@ routes:
     async fn build_inference_context_route_file_overrides_cluster() {
         use std::io::Write;
 
-        let yaml = r#"
+        let yaml = r"
 routes:
   - name: inference.local
     endpoint: http://localhost:9999/v1
     model: file-model
     protocols: [openai_chat_completions]
     api_key: file-key
-"#;
+";
         let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(yaml.as_bytes()).unwrap();
         let path = f.path().to_str().unwrap();
@@ -1722,7 +1715,7 @@ routes:
         let path = dir.path().join("policy.yaml");
         std::fs::write(
             &path,
-            r#"
+            r"
 version: 1
 filesystem_policy:
   include_workdir: false
@@ -1737,7 +1730,7 @@ network_policies:
       - { host: example.com, port: 443 }
     binaries:
       - { path: /usr/bin/curl }
-"#,
+",
         )
         .unwrap();
 
@@ -1766,7 +1759,7 @@ network_policies:
         let path = dir.path().join("policy.yaml");
         std::fs::write(
             &path,
-            r#"
+            r"
 version: 1
 process:
   run_as_user: root
@@ -1777,7 +1770,7 @@ filesystem_policy:
     - /usr
   read_write:
     - /tmp
-"#,
+",
         )
         .unwrap();
 

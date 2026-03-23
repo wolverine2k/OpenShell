@@ -259,15 +259,14 @@ impl OpaEngine {
             Some(value_to_string(&matched))
         };
 
-        match action_str.as_str() {
-            "allow" => Ok(NetworkAction::Allow { matched_policy }),
-            _ => {
-                let reason_val = engine
-                    .eval_rule("data.openshell.sandbox.deny_reason".into())
-                    .map_err(|e| miette::miette!("{e}"))?;
-                let reason = value_to_string(&reason_val);
-                Ok(NetworkAction::Deny { reason })
-            }
+        if action_str.as_str() == "allow" {
+            Ok(NetworkAction::Allow { matched_policy })
+        } else {
+            let reason_val = engine
+                .eval_rule("data.openshell.sandbox.deny_reason".into())
+                .map_err(|e| miette::miette!("{e}"))?;
+            let reason = value_to_string(&reason_val);
+            Ok(NetworkAction::Deny { reason })
         }
     }
 
@@ -1572,7 +1571,7 @@ process:
     // network_action tests
     // ========================================================================
 
-    const INFERENCE_TEST_DATA: &str = r#"
+    const INFERENCE_TEST_DATA: &str = r"
 network_policies:
   claude_code:
     name: claude_code
@@ -1595,9 +1594,9 @@ landlock:
 process:
   run_as_user: sandbox
   run_as_group: sandbox
-"#;
+";
 
-    const NO_INFERENCE_TEST_DATA: &str = r#"
+    const NO_INFERENCE_TEST_DATA: &str = r"
 network_policies:
   gitlab:
     name: gitlab
@@ -1614,7 +1613,7 @@ landlock:
 process:
   run_as_user: sandbox
   run_as_group: sandbox
-"#;
+";
 
     fn inference_engine() -> OpaEngine {
         OpaEngine::from_strings(TEST_POLICY, INFERENCE_TEST_DATA)
@@ -2001,7 +2000,7 @@ process:
 
     #[test]
     fn multi_port_endpoint_matches_first_port() {
-        let data = r#"
+        let data = r"
 network_policies:
   multi:
     name: multi
@@ -2009,7 +2008,7 @@ network_policies:
       - { host: api.example.com, ports: [443, 8443] }
     binaries:
       - { path: /usr/bin/curl }
-"#;
+";
         let engine = OpaEngine::from_strings(TEST_POLICY, data).unwrap();
         let input = NetworkInput {
             host: "api.example.com".into(),
@@ -2029,7 +2028,7 @@ network_policies:
 
     #[test]
     fn multi_port_endpoint_matches_second_port() {
-        let data = r#"
+        let data = r"
 network_policies:
   multi:
     name: multi
@@ -2037,7 +2036,7 @@ network_policies:
       - { host: api.example.com, ports: [443, 8443] }
     binaries:
       - { path: /usr/bin/curl }
-"#;
+";
         let engine = OpaEngine::from_strings(TEST_POLICY, data).unwrap();
         let input = NetworkInput {
             host: "api.example.com".into(),
@@ -2057,7 +2056,7 @@ network_policies:
 
     #[test]
     fn multi_port_endpoint_rejects_unlisted_port() {
-        let data = r#"
+        let data = r"
 network_policies:
   multi:
     name: multi
@@ -2065,7 +2064,7 @@ network_policies:
       - { host: api.example.com, ports: [443, 8443] }
     binaries:
       - { path: /usr/bin/curl }
-"#;
+";
         let engine = OpaEngine::from_strings(TEST_POLICY, data).unwrap();
         let input = NetworkInput {
             host: "api.example.com".into(),
@@ -2082,7 +2081,7 @@ network_policies:
     #[test]
     fn single_port_backwards_compat() {
         // Old-style YAML with just `port: 443` should still work
-        let data = r#"
+        let data = r"
 network_policies:
   compat:
     name: compat
@@ -2090,7 +2089,7 @@ network_policies:
       - { host: api.example.com, port: 443 }
     binaries:
       - { path: /usr/bin/curl }
-"#;
+";
         let engine = OpaEngine::from_strings(TEST_POLICY, data).unwrap();
         let input = NetworkInput {
             host: "api.example.com".into(),

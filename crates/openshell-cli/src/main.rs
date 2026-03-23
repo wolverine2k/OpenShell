@@ -1129,7 +1129,7 @@ enum SandboxCommands {
         policy: Option<String>,
 
         /// Forward a local port to the sandbox before the initial command or shell starts.
-        /// Accepts [bind_address:]port (e.g. 8080, 0.0.0.0:8080). Keeps the sandbox alive.
+        /// Accepts [`bind_address`:]port (e.g. 8080, 0.0.0.0:8080). Keeps the sandbox alive.
         #[arg(long, conflicts_with = "no_keep")]
         forward: Option<String>,
 
@@ -1486,7 +1486,7 @@ enum ForwardCommands {
     /// Start forwarding a local port to a sandbox.
     #[command(help_template = LEAF_HELP_TEMPLATE, next_help_heading = "FLAGS")]
     Start {
-        /// Port to forward: [bind_address:]port (e.g. 8080, 0.0.0.0:8080).
+        /// Port to forward: [`bind_address`:]port (e.g. 8080, 0.0.0.0:8080).
         port: String,
 
         /// Sandbox name (defaults to last-used sandbox).
@@ -1709,16 +1709,15 @@ async fn main() -> Result<()> {
             ForwardCommands::Stop { port, name } => {
                 let name = match name {
                     Some(n) => n,
-                    None => match run::find_forward_by_port(port)? {
-                        Some(n) => {
+                    None => {
+                        if let Some(n) = run::find_forward_by_port(port)? {
                             eprintln!("→ Found forward on sandbox '{n}'");
                             n
-                        }
-                        None => {
+                        } else {
                             eprintln!("{} No active forward found for port {port}", "!".yellow(),);
                             return Ok(());
                         }
-                    },
+                    }
                 };
                 if run::stop_forward(&name, port)? {
                     eprintln!(
@@ -2979,7 +2978,7 @@ mod tests {
         });
     }
 
-    /// Verify the flag names the TUI uses to build its ProxyCommand are
+    /// Verify the flag names the TUI uses to build its `ProxyCommand` are
     /// accepted by the `SshProxy` subcommand and land in the right fields.
     /// This catches drift when CLI flags are renamed or restructured.
     #[test]

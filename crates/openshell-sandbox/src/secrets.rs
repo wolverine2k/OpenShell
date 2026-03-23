@@ -6,7 +6,7 @@ use std::collections::HashMap;
 const PLACEHOLDER_PREFIX: &str = "openshell:resolve:env:";
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct SecretResolver {
+pub struct SecretResolver {
     by_placeholder: HashMap<String, String>,
 }
 
@@ -48,11 +48,11 @@ impl SecretResolver {
     }
 }
 
-pub(crate) fn placeholder_for_env_key(key: &str) -> String {
+pub fn placeholder_for_env_key(key: &str) -> String {
     format!("{PLACEHOLDER_PREFIX}{key}")
 }
 
-pub(crate) fn rewrite_http_header_block(raw: &[u8], resolver: Option<&SecretResolver>) -> Vec<u8> {
+pub fn rewrite_http_header_block(raw: &[u8], resolver: Option<&SecretResolver>) -> Vec<u8> {
     let Some(resolver) = resolver else {
         return raw.to_vec();
     };
@@ -85,7 +85,7 @@ pub(crate) fn rewrite_http_header_block(raw: &[u8], resolver: Option<&SecretReso
     output
 }
 
-pub(crate) fn rewrite_header_line(line: &str, resolver: &SecretResolver) -> String {
+pub fn rewrite_header_line(line: &str, resolver: &SecretResolver) -> String {
     let Some((name, value)) = line.split_once(':') else {
         return line.to_string();
     };

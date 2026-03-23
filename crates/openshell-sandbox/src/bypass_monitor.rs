@@ -154,12 +154,11 @@ pub fn spawn(
             }
         };
 
-        let stdout = match child.stdout.take() {
-            Some(s) => s,
-            None => {
-                warn!("dmesg --follow produced no stdout; bypass monitor will not run");
-                return;
-            }
+        let stdout = if let Some(s) = child.stdout.take() {
+            s
+        } else {
+            warn!("dmesg --follow produced no stdout; bypass monitor will not run");
+            return;
         };
 
         let reader = std::io::BufReader::new(stdout);

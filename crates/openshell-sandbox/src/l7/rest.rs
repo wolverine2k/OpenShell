@@ -1044,10 +1044,10 @@ mod tests {
                     break;
                 }
                 total += n;
-                if let Some(hdr_end) = buf[..total].windows(4).position(|w| w == b"\r\n\r\n") {
-                    if total >= hdr_end + 4 + 2 {
-                        break;
-                    }
+                if let Some(hdr_end) = buf[..total].windows(4).position(|w| w == b"\r\n\r\n")
+                    && total >= hdr_end + 4 + 2
+                {
+                    break;
                 }
             }
             upstream_side
@@ -1126,10 +1126,10 @@ mod tests {
                     break;
                 }
                 total += n;
-                if let Some(hdr_end) = buf[..total].windows(4).position(|w| w == b"\r\n\r\n") {
-                    if total >= hdr_end + 4 + 2 {
-                        break;
-                    }
+                if let Some(hdr_end) = buf[..total].windows(4).position(|w| w == b"\r\n\r\n")
+                    && total >= hdr_end + 4 + 2
+                {
+                    break;
                 }
             }
             upstream_side

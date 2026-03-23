@@ -392,7 +392,7 @@ fn format_bytes(bytes: u64) -> String {
     } else if bytes >= KB {
         format!("{} KB", bytes / KB)
     } else {
-        format!("{} B", bytes)
+        format!("{bytes} B")
     }
 }
 
@@ -1374,44 +1374,43 @@ pub async fn gateway_admin_deploy(
     let mut should_recreate = recreate;
     if let Some(existing) =
         openshell_bootstrap::check_existing_deployment(name, remote_opts.as_ref()).await?
+        && !should_recreate
     {
-        if !should_recreate {
-            let interactive = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
-            if interactive {
-                let status = if existing.container_running {
-                    "running"
-                } else if existing.container_exists {
-                    "stopped"
-                } else {
-                    "volume only"
-                };
-                eprintln!();
-                eprintln!(
-                    "{} Gateway '{name}' already exists ({status}).",
-                    "!".yellow().bold()
-                );
-                if let Some(image) = &existing.container_image {
-                    eprintln!("  {} {}", "Image:".dimmed(), image);
-                }
-                eprintln!();
-                eprint!("Destroy and recreate? [y/N] ");
-                std::io::stderr().flush().ok();
-                let mut input = String::new();
-                std::io::stdin()
-                    .read_line(&mut input)
-                    .into_diagnostic()
-                    .wrap_err("failed to read user input")?;
-                let choice = input.trim().to_lowercase();
-                should_recreate = choice == "y" || choice == "yes";
-                if !should_recreate {
-                    eprintln!("Keeping existing gateway.");
-                    return Ok(());
-                }
+        let interactive = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+        if interactive {
+            let status = if existing.container_running {
+                "running"
+            } else if existing.container_exists {
+                "stopped"
             } else {
-                // Non-interactive mode: reuse existing gateway silently.
-                eprintln!("Gateway '{name}' already exists, reusing.");
+                "volume only"
+            };
+            eprintln!();
+            eprintln!(
+                "{} Gateway '{name}' already exists ({status}).",
+                "!".yellow().bold()
+            );
+            if let Some(image) = &existing.container_image {
+                eprintln!("  {} {}", "Image:".dimmed(), image);
+            }
+            eprintln!();
+            eprint!("Destroy and recreate? [y/N] ");
+            std::io::stderr().flush().ok();
+            let mut input = String::new();
+            std::io::stdin()
+                .read_line(&mut input)
+                .into_diagnostic()
+                .wrap_err("failed to read user input")?;
+            let choice = input.trim().to_lowercase();
+            should_recreate = choice == "y" || choice == "yes";
+            if !should_recreate {
+                eprintln!("Keeping existing gateway.");
                 return Ok(());
             }
+        } else {
+            // Non-interactive mode: reuse existing gateway silently.
+            eprintln!("Gateway '{name}' already exists, reusing.");
+            return Ok(());
         }
     }
 
@@ -1670,7 +1669,7 @@ pub fn doctor_exec(
     } else if let Some(metadata) = get_gateway_metadata(name)
         && metadata.is_remote
     {
-        metadata.remote_host.clone()
+        metadata.remote_host
     } else {
         None
     };
@@ -1761,7 +1760,7 @@ pub async fn doctor_check() -> Result<()> {
             match std::env::var("DOCKER_HOST") {
                 Ok(val) => writeln!(stdout, "{val}").into_diagnostic()?,
                 Err(_) => writeln!(stdout, "(not set, using default socket)").into_diagnostic()?,
-            };
+            }
 
             writeln!(stdout, "\nAll checks passed.").into_diagnostic()?;
             Ok(())
@@ -2182,7 +2181,7 @@ pub async fn sandbox_create(
                             let label = if size_label.is_empty() {
                                 "Image pulled".to_string()
                             } else {
-                                format!("Image pulled ({})", size_label)
+                                format!("Image pulled ({size_label})")
                             };
                             if let Some(d) = display.as_mut() {
                                 d.complete_step_with_label(
@@ -3969,9 +3968,9 @@ pub async fn sandbox_settings_get(
             "sandbox"
         };
 
-    println!("Sandbox:       {}", name);
+    println!("Sandbox:       {name}");
     println!("Config Rev:    {}", response.config_revision);
-    println!("Policy Source: {}", policy_source);
+    println!("Policy Source: {policy_source}");
     println!("Policy Hash:   {}", response.policy_hash);
 
     if response.settings.is_empty() {

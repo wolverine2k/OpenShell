@@ -172,11 +172,7 @@ pub async fn check_docker_available() -> Result<DockerPreflight> {
             let is_podman = v
                 .components
                 .as_ref()
-                .map(|components| {
-                    components
-                        .iter()
-                        .any(|c| c.name == "Podman Engine")
-                })
+                .map(|components| components.iter().any(|c| c.name == "Podman Engine"))
                 .unwrap_or(false);
             let rt = if is_podman {
                 ContainerRuntime::Podman
@@ -1293,12 +1289,18 @@ mod tests {
     // Runtime detection logic (pure — no live socket needed)
     // -------------------------------------------------------------------------
 
-    fn detect_runtime(components: Option<Vec<bollard::models::SystemVersionComponents>>) -> ContainerRuntime {
+    fn detect_runtime(
+        components: Option<Vec<bollard::models::SystemVersionComponents>>,
+    ) -> ContainerRuntime {
         let is_podman = components
             .as_ref()
             .map(|cs| cs.iter().any(|c| c.name == "Podman Engine"))
             .unwrap_or(false);
-        if is_podman { ContainerRuntime::Podman } else { ContainerRuntime::Docker }
+        if is_podman {
+            ContainerRuntime::Podman
+        } else {
+            ContainerRuntime::Docker
+        }
     }
 
     #[test]
@@ -1391,7 +1393,10 @@ mod tests {
         }
 
         let expected = format!("{xdg}/podman/podman.sock");
-        assert!(found.contains(&expected), "expected XDG podman socket; got: {found:?}");
+        assert!(
+            found.contains(&expected),
+            "expected XDG podman socket; got: {found:?}"
+        );
     }
 
     #[test]
@@ -1415,7 +1420,10 @@ mod tests {
         }
 
         let expected = format!("{home}/.local/share/containers/podman/machine/podman.sock");
-        assert!(found.contains(&expected), "expected HOME podman machine socket; got: {found:?}");
+        assert!(
+            found.contains(&expected),
+            "expected HOME podman machine socket; got: {found:?}"
+        );
     }
 
     #[test]
@@ -1440,7 +1448,10 @@ mod tests {
 
         let expected = format!("{xdg}/podman/podman.sock");
         let count = found.iter().filter(|p| *p == &expected).count();
-        assert_eq!(count, 1, "socket should appear exactly once; got: {found:?}");
+        assert_eq!(
+            count, 1,
+            "socket should appear exactly once; got: {found:?}"
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -1463,27 +1474,53 @@ mod tests {
         let hosts = build_extra_hosts(ContainerRuntime::Docker);
         assert_eq!(hosts.len(), 2);
         assert!(!hosts.iter().any(|h| h.contains("containers.internal")));
-        assert!(hosts.iter().any(|h| h == "host.docker.internal:host-gateway"));
-        assert!(hosts.iter().any(|h| h == "host.openshell.internal:host-gateway"));
+        assert!(
+            hosts
+                .iter()
+                .any(|h| h == "host.docker.internal:host-gateway")
+        );
+        assert!(
+            hosts
+                .iter()
+                .any(|h| h == "host.openshell.internal:host-gateway")
+        );
     }
 
     #[test]
     fn extra_hosts_podman_has_three_entries_with_containers_internal() {
         let hosts = build_extra_hosts(ContainerRuntime::Podman);
         assert_eq!(hosts.len(), 3);
-        assert!(hosts.iter().any(|h| h == "host.containers.internal:host-gateway"));
-        assert!(hosts.iter().any(|h| h == "host.docker.internal:host-gateway"));
-        assert!(hosts.iter().any(|h| h == "host.openshell.internal:host-gateway"));
+        assert!(
+            hosts
+                .iter()
+                .any(|h| h == "host.containers.internal:host-gateway")
+        );
+        assert!(
+            hosts
+                .iter()
+                .any(|h| h == "host.docker.internal:host-gateway")
+        );
+        assert!(
+            hosts
+                .iter()
+                .any(|h| h == "host.openshell.internal:host-gateway")
+        );
     }
 
     #[test]
     fn container_runtime_env_var_docker() {
-        assert_eq!(format!("CONTAINER_RUNTIME={}", ContainerRuntime::Docker), "CONTAINER_RUNTIME=docker");
+        assert_eq!(
+            format!("CONTAINER_RUNTIME={}", ContainerRuntime::Docker),
+            "CONTAINER_RUNTIME=docker"
+        );
     }
 
     #[test]
     fn container_runtime_env_var_podman() {
-        assert_eq!(format!("CONTAINER_RUNTIME={}", ContainerRuntime::Podman), "CONTAINER_RUNTIME=podman");
+        assert_eq!(
+            format!("CONTAINER_RUNTIME={}", ContainerRuntime::Podman),
+            "CONTAINER_RUNTIME=podman"
+        );
     }
 
     /// Live integration test: verify that check_docker_available() detects the

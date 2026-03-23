@@ -164,13 +164,13 @@ pub async fn generate_proposals(summaries: &[DenialSummary]) -> Vec<PolicyChunk>
             .map(|(_, name)| format!(" ({name})"))
             .unwrap_or_default();
 
-        let private_ip_note = if !allowed_ips.is_empty() {
+        let private_ip_note = if allowed_ips.is_empty() {
+            String::new()
+        } else {
             format!(
                 " Host resolves to private IP ({}); allowed_ips included for SSRF override.",
                 allowed_ips.join(", ")
             )
-        } else {
-            String::new()
         };
 
         // Note: hit_count in the DB accumulates across flush cycles, so we
@@ -390,7 +390,7 @@ fn looks_like_id(segment: &str) -> bool {
         return true;
     }
     // UUID-ish (contains dashes, 32+ hex chars)
-    let hex_only: String = segment.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+    let hex_only: String = segment.chars().filter(char::is_ascii_hexdigit).collect();
     if hex_only.len() >= 24 && segment.contains('-') {
         return true;
     }
