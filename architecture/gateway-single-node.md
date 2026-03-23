@@ -5,7 +5,7 @@ This document describes how OpenShell bootstraps a single-node k3s gateway insid
 ## Goals and Scope
 
 - Provide a single bootstrap flow through `openshell-bootstrap` for local and remote gateway lifecycle.
-- Keep Docker as the only runtime dependency for provisioning and lifecycle operations.
+- Keep Docker or Podman as the only runtime dependency for provisioning and lifecycle operations.
 - Package the OpenShell gateway as one container image, transferred to the target host via registry pull.
 - Support idempotent `deploy` behavior (safe to re-run).
 - Persist gateway access artifacts (metadata, mTLS certs) in the local XDG config directory.
@@ -21,9 +21,9 @@ Out of scope:
 - `crates/openshell-cli/src/run.rs`: CLI command implementations (`gateway_start`, `gateway_stop`, `gateway_destroy`, `gateway_info`, `doctor_logs`).
 - `crates/openshell-cli/src/bootstrap.rs`: Auto-bootstrap helpers for `sandbox create` (offers to deploy a gateway when one is unreachable).
 - `crates/openshell-bootstrap/src/lib.rs`: Gateway lifecycle orchestration (`deploy_gateway`, `deploy_gateway_with_logs`, `gateway_handle`, `check_existing_deployment`).
-- `crates/openshell-bootstrap/src/docker.rs`: Docker API wrappers (per-gateway network, volume, container, image operations).
+- `crates/openshell-bootstrap/src/docker.rs`: Container daemon API wrappers for Docker and Podman (per-gateway network, volume, container, image operations).
 - `crates/openshell-bootstrap/src/image.rs`: Remote image registry pull with XOR-obfuscated distribution credentials.
-- `crates/openshell-bootstrap/src/runtime.rs`: In-container operations via `docker exec` (health polling, stale node cleanup, deployment restart).
+- `crates/openshell-bootstrap/src/runtime.rs`: In-container operations via the container daemon (health polling, stale node cleanup, deployment restart).
 - `crates/openshell-bootstrap/src/metadata.rs`: Gateway metadata creation, storage, and active gateway tracking.
 - `crates/openshell-bootstrap/src/mtls.rs`: Gateway TLS detection and CLI mTLS bundle extraction.
 - `crates/openshell-bootstrap/src/push.rs`: Local development image push into k3s containerd.
@@ -31,8 +31,8 @@ Out of scope:
 - `crates/openshell-bootstrap/src/constants.rs`: Shared constants (image name, container/volume/network naming).
 - `deploy/docker/Dockerfile.images` (target `cluster`): Container image definition (k3s base + Helm charts + manifests + entrypoint).
 - `deploy/docker/cluster-entrypoint.sh`: Container entrypoint (DNS proxy, registry config, manifest injection).
-- `deploy/docker/cluster-healthcheck.sh`: Docker HEALTHCHECK script.
-- Docker daemon(s):
+- `deploy/docker/cluster-healthcheck.sh`: Container daemon HEALTHCHECK script.
+- Container daemon(s) (Docker or Podman):
   - Local daemon for local deploys.
   - Remote daemon over SSH for remote deploy container operations.
 
@@ -78,8 +78,8 @@ sequenceDiagram
   participant U as User
   participant C as openshell-cli
   participant B as openshell-bootstrap
-  participant L as Local Docker daemon
-  participant R as Remote Docker daemon (SSH)
+  participant L as Local container daemon
+  participant R as Remote container daemon (SSH)
 
   U->>C: openshell gateway start --remote user@host
   C->>B: deploy_gateway(DeployOptions)
@@ -88,7 +88,7 @@ sequenceDiagram
   B->>R: pull_remote_image (registry auth, platform-aware)
   B->>R: tag image to local ref
 
-  Note over B,R: Docker socket APIs only, no extra host dependencies
+  Note over B,R: Container daemon socket APIs only, no extra host dependencies
 
   B->>B: resolve SSH host for extra TLS SANs
   B->>R: ensure_network (per-gateway bridge, attachable)
@@ -115,7 +115,7 @@ flowchart LR
   end
 
   subgraph HOST[Target host]
-    DOCKER[Docker daemon]
+    DAEMON[Container daemon (Docker or Podman)]
     K3S[openshell-cluster-NAME single k3s container]
     G8080[Gateway :port -> :30051 mTLS default 8080]
     SBX[Sandbox runtime]
@@ -124,7 +124,7 @@ flowchart LR
   NAV --> G8080
   MTLS -. client cert auth .-> G8080
 
-  DOCKER --> K3S
+  DAEMON --> K3S
   K3S --> G8080
   K3S --> G80
   K3S --> G443
@@ -138,8 +138,8 @@ flowchart LR
 
 - `DeployOptions` fields: `name: String`, `image_ref: Option<String>`, `remote: Option<RemoteOptions>`, `port: u16` (default 8080).
 - `RemoteOptions` fields: `destination: String`, `ssh_key: Option<String>`.
-- **Local deploy**: Create one Docker client with `Docker::connect_with_local_defaults()`.
-- **Remote deploy**: Create SSH Docker client via `Docker::connect_with_ssh()` with a 600-second timeout (for large image transfers). The destination is prefixed with `ssh://` if not already present.
+- **Local deploy**: Create one container daemon client with `Docker::connect_with_local_defaults()`. The bootstrap layer auto-detects Docker or Podman by inspecting the daemon version response.
+- **Remote deploy**: Create SSH container daemon client via `Docker::connect_with_ssh()` with a 600-second timeout (for large image transfers). The destination is prefixed with `ssh://` if not already present.
 
 The `deploy_gateway_with_logs` variant accepts an `FnMut(String)` callback for progress reporting. The CLI wraps this in a `GatewayDeployLogPanel` for interactive terminals.
 
@@ -153,22 +153,23 @@ Image ref resolution in `default_gateway_image_ref()`:
 2. Otherwise, use the published distribution image base (`<distribution-registry>/openshell/cluster`) with its default tag behavior.
 
 - **Local deploy**: `ensure_image()` inspects the image on the local daemon and pulls from the configured registry if missing (using built-in distribution credentials when pulling from the default distribution host).
-- **Remote deploy**: `pull_remote_image()` queries the remote daemon's architecture via `Docker::version()`, pulls the matching platform variant from the distribution registry (with XOR-decoded credentials), and tags the pulled image to the expected local ref (for example `openshell/cluster:dev` when an explicit local tag is requested).
+- **Remote deploy**: `pull_remote_image()` queries the remote daemon's architecture via `Docker::version()`, which also indicates the runtime type (Docker or Podman). It then pulls the matching platform variant from the distribution registry (with XOR-decoded credentials) and tags the pulled image to the expected local ref (for example `openshell/cluster:dev` when an explicit local tag is requested).
 
 ### 3) Runtime infrastructure
 
 For the target daemon (local or remote):
 
-1. **Ensure bridge network** `openshell-cluster-{name}` (attachable, bridge driver) via `ensure_network()`. Each gateway gets its own isolated Docker network.
+1. **Ensure bridge network** `openshell-cluster-{name}` (attachable, bridge driver) via `ensure_network()`. Each gateway gets its own isolated container network.
 2. **Ensure volume** `openshell-cluster-{name}` via `ensure_volume()`.
 3. **Compute extra TLS SANs**:
    - For **local deploys**: Check `DOCKER_HOST` for a non-loopback `tcp://` endpoint (e.g., `tcp://docker:2375` in CI). If found, extract the host as an extra SAN. The function `local_gateway_host_from_docker_host()` skips `localhost`, `127.0.0.1`, and `::1`.
    - For **remote deploys**: Extract the host from the SSH destination (handles `user@host`, `ssh://user@host`), resolve via `ssh -G` to get the canonical hostname/IP. Include both the resolved host and original SSH host (if different) as extra SANs.
+   - **Runtime detection**: The bootstrap layer inspects the daemon version response's `Components` field. A `"Podman Engine"` component indicates Podman; otherwise, Docker is assumed.
 4. **Ensure container** `openshell-cluster-{name}` via `ensure_container()`:
    - k3s server command: `server --disable=traefik --tls-san=127.0.0.1 --tls-san=localhost --tls-san=host.docker.internal` plus computed extra SANs.
    - Privileged mode.
    - Volume bind mount: `openshell-cluster-{name}:/var/lib/rancher/k3s`.
-    - Network: `openshell-cluster-{name}` (per-gateway bridge network).
+   - Network: `openshell-cluster-{name}` (per-gateway bridge network).
    - Extra host: `host.docker.internal:host-gateway`.
    - The cluster entrypoint prefers the resolved IPv4 for `host.docker.internal` when populating sandbox pod `hostAliases`, then falls back to the container default gateway. This keeps sandbox host aliases working on Docker Desktop, where the host-reachable IP differs from the bridge gateway.
    - Port mappings:
@@ -254,7 +255,7 @@ The HEALTHCHECK is configured as: `--interval=5s --timeout=5s --start-period=20s
 
 ### DNS proxy setup
 
-On Docker custom networks, `/etc/resolv.conf` contains `127.0.0.11` (Docker's internal DNS). k3s detects this loopback and falls back to `8.8.8.8`, which does not work on Docker Desktop. The entrypoint solves this by:
+On container networks, `/etc/resolv.conf` may contain a loopback address (`127.0.0.11` on Docker, similar on Podman). k3s detects this loopback and falls back to `8.8.8.8`, which does not work reliably. The entrypoint solves this by:
 
 1. Discovering Docker's real DNS listener ports from the `DOCKER_OUTPUT` iptables chain.
 2. Getting the container's `eth0` IP as a routable address.
@@ -285,7 +286,7 @@ When environment variables are set, the entrypoint modifies the HelmChart manife
 
 ## Healthcheck Script
 
-`deploy/docker/cluster-healthcheck.sh` validates cluster readiness through a series of checks:
+`deploy/docker/cluster-healthcheck.sh` validates cluster readiness. The container daemon (Docker or Podman) runs this script through a series of checks:
 
 1. **Kubernetes API**: `kubectl get --raw='/readyz'`
 2. **OpenShell StatefulSet**: Checks that `statefulset/openshell` in namespace `openshell` exists and has 1 ready replica.
@@ -297,7 +298,7 @@ When environment variables are set, the entrypoint modifies the HelmChart manife
 GPU support is part of the single-node gateway bootstrap path rather than a separate architecture.
 
 - `openshell gateway start --gpu` threads a boolean deploy option through `crates/openshell-cli`, `crates/openshell-bootstrap`, and `crates/openshell-bootstrap/src/docker.rs`.
-- When enabled, the cluster container is created with Docker `DeviceRequests`, which is the API equivalent of `docker run --gpus all`.
+- When enabled, the cluster container is created with container daemon `DeviceRequests`, which is the API equivalent of `docker run --gpus all` or `podman run --gpus all`.
 - `deploy/docker/Dockerfile.images` installs NVIDIA Container Toolkit packages in a dedicated Ubuntu stage and copies the runtime binaries, config, and `libnvidia-container` shared libraries into the final Ubuntu-based cluster image.
 - `deploy/docker/cluster-entrypoint.sh` checks `GPU_ENABLED=true` and copies GPU-only manifests from `/opt/openshell/gpu-manifests/` into k3s's manifests directory.
 - `deploy/kube/gpu-manifests/nvidia-device-plugin-helmchart.yaml` installs the NVIDIA device plugin chart, currently pinned to `0.18.2`. NFD and GFD are disabled; the device plugin's default `nodeAffinity` (which requires `feature.node.kubernetes.io/pci-10de.present=true` or `nvidia.com/gpu.present=true` from NFD/GFD) is overridden to empty so the DaemonSet schedules on the single-node cluster without requiring those labels.
@@ -308,7 +309,7 @@ The runtime chain is:
 
 ```text
 Host GPU drivers & NVIDIA Container Toolkit
-    └─ Docker: --gpus all (DeviceRequests in bollard API)
+    └─ Container daemon: --gpus all (DeviceRequests in container API)
         └─ k3s/containerd: nvidia-container-runtime on PATH -> auto-detected
             └─ k8s: nvidia-device-plugin DaemonSet advertises nvidia.com/gpu
                 └─ Pods: request nvidia.com/gpu in resource limits
@@ -338,6 +339,28 @@ flowchart LR
 - Local: `https://127.0.0.1:{port}` (or `https://{docker_host}:{port}` when `DOCKER_HOST` is a non-loopback TCP endpoint). Default port is 8080.
 - Remote: `https://<resolved-remote-host>:{port}`.
 - The host port (configurable via `--port`, default 8080) maps to container port 30051 (OpenShell service NodePort).
+
+## Podman support
+
+Podman 4.0+ is supported as an alternative to Docker. The bootstrap layer auto-detects the runtime by inspecting the `Components` field of the daemon version response — a `"Podman Engine"` component indicates Podman.
+
+On macOS, start a rootful Podman machine before running `openshell gateway start`:
+
+```console
+$ podman machine init --rootful
+$ podman machine start
+```
+
+Rootful mode is recommended because k3s requires full cgroup access inside the cluster container. Rootless Podman may work but is not tested.
+
+Socket discovery checks the following paths in order, in addition to the standard Docker socket locations:
+
+- `/run/podman/podman.sock` (Linux, rootful)
+- `$XDG_RUNTIME_DIR/podman/podman.sock` (Linux, rootless)
+- `~/.local/share/containers/podman/machine/podman.sock` (macOS)
+- `~/.config/containers/podman/machine/podman.sock` (Podman Desktop on macOS)
+
+Set `DOCKER_HOST` to point to any of these paths if auto-detection fails.
 
 ## Lifecycle Operations
 

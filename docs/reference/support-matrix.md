@@ -22,9 +22,10 @@ OpenShell publishes multi-architecture container images for `linux/amd64` and `l
 
 The following software must be installed on the host before using the OpenShell CLI:
 
-| Component                       | Minimum Version | Notes                                           |
-| ------------------------------- | --------------- | ----------------------------------------------- |
-| Docker Desktop or Docker Engine | 28.04           | Must be running before any `openshell` command. |
+| Component                              | Minimum Version | Notes                                           |
+| -------------------------------------- | --------------- | ----------------------------------------------- |
+| Docker Desktop or Docker Engine        | 28.0            | Must be running before any `openshell` command. |
+| Podman                                 | 5.0             | Alternative to Docker. Both are auto-detected.  |
 
 ## Sandbox Runtime Versions
 

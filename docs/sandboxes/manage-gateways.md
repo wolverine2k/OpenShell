@@ -36,11 +36,11 @@ The gateway is responsible for:
 - Managing inference configuration and serving inference bundles so sandboxes can route requests to the correct backend.
 - Providing the SSH tunnel endpoint so you can connect to sandboxes without exposing them directly.
 
-The gateway runs inside a Docker container and exposes a single port (gRPC and HTTP multiplexed), secured by mTLS by default. No separate Kubernetes installation is required. It can be deployed locally, on a remote host via SSH, or behind a cloud reverse proxy.
+The gateway runs inside a container managed by Docker or Podman and exposes a single port (gRPC and HTTP multiplexed), secured by mTLS by default. No separate Kubernetes installation is required. It can be deployed locally, on a remote host via SSH, or behind a cloud reverse proxy.
 
 ## Deploy a Local Gateway
 
-Deploy a gateway on your workstation. The only prerequisite is a running Docker daemon.
+Deploy a gateway on your workstation. The only prerequisite is a running container daemon (Docker or Podman). The `openshell gateway start` command auto-detects the available runtime.
 
 ```console
 $ openshell gateway start
@@ -65,7 +65,7 @@ $ openshell gateway start --name dev-local
 
 ## Deploy a Remote Gateway
 
-Deploy a gateway on a remote machine accessible via SSH. The only dependency on the remote host is Docker.
+Deploy a gateway on a remote machine accessible via SSH. The only dependency on the remote host is Docker or Podman.
 
 ```console
 $ openshell gateway start --remote user@hostname

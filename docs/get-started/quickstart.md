@@ -32,7 +32,7 @@ This page gets you from zero to a running, policy-enforced sandbox in two comman
 
 Before you begin, make sure you have:
 
-- Docker Desktop running on your machine.
+- Docker Desktop or Podman 5.0+ running on your machine.
 
 For a complete list of requirements, refer to {doc}`../reference/support-matrix`.
 

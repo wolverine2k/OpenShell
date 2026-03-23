@@ -1275,6 +1275,217 @@ mod tests {
         );
     }
 
+    // -------------------------------------------------------------------------
+    // ContainerRuntime Display
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn container_runtime_display_docker() {
+        assert_eq!(ContainerRuntime::Docker.to_string(), "docker");
+    }
+
+    #[test]
+    fn container_runtime_display_podman() {
+        assert_eq!(ContainerRuntime::Podman.to_string(), "podman");
+    }
+
+    // -------------------------------------------------------------------------
+    // Runtime detection logic (pure — no live socket needed)
+    // -------------------------------------------------------------------------
+
+    fn detect_runtime(components: Option<Vec<bollard::models::SystemVersionComponents>>) -> ContainerRuntime {
+        let is_podman = components
+            .as_ref()
+            .map(|cs| cs.iter().any(|c| c.name == "Podman Engine"))
+            .unwrap_or(false);
+        if is_podman { ContainerRuntime::Podman } else { ContainerRuntime::Docker }
+    }
+
+    #[test]
+    fn runtime_detection_identifies_podman_engine() {
+        let components = Some(vec![bollard::models::SystemVersionComponents {
+            name: "Podman Engine".to_string(),
+            version: "5.0.0".to_string(),
+            details: None,
+        }]);
+        assert_eq!(detect_runtime(components), ContainerRuntime::Podman);
+    }
+
+    #[test]
+    fn runtime_detection_ignores_non_podman_components() {
+        let components = Some(vec![
+            bollard::models::SystemVersionComponents {
+                name: "Engine".to_string(),
+                version: "28.1.1".to_string(),
+                details: None,
+            },
+            bollard::models::SystemVersionComponents {
+                name: "containerd".to_string(),
+                version: "1.7.0".to_string(),
+                details: None,
+            },
+        ]);
+        assert_eq!(detect_runtime(components), ContainerRuntime::Docker);
+    }
+
+    #[test]
+    fn runtime_detection_falls_back_to_docker_when_components_none() {
+        assert_eq!(detect_runtime(None), ContainerRuntime::Docker);
+    }
+
+    #[test]
+    fn runtime_detection_falls_back_to_docker_when_components_empty() {
+        assert_eq!(detect_runtime(Some(vec![])), ContainerRuntime::Docker);
+    }
+
+    #[test]
+    fn runtime_detection_is_case_sensitive() {
+        // "podman engine" (lowercase) must NOT match — real Podman reports "Podman Engine"
+        let components = Some(vec![bollard::models::SystemVersionComponents {
+            name: "podman engine".to_string(),
+            version: "5.0.0".to_string(),
+            details: None,
+        }]);
+        assert_eq!(detect_runtime(components), ContainerRuntime::Docker);
+    }
+
+    #[test]
+    fn runtime_detection_handles_podman_not_first_component() {
+        let components = Some(vec![
+            bollard::models::SystemVersionComponents {
+                name: "Buildah".to_string(),
+                version: "1.35.0".to_string(),
+                details: None,
+            },
+            bollard::models::SystemVersionComponents {
+                name: "Podman Engine".to_string(),
+                version: "5.0.0".to_string(),
+                details: None,
+            },
+        ]);
+        assert_eq!(detect_runtime(components), ContainerRuntime::Podman);
+    }
+
+    // -------------------------------------------------------------------------
+    // find_alternative_sockets — Podman path construction
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn find_alternative_sockets_includes_xdg_runtime_podman_socket() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let podman_dir = dir.path().join("podman");
+        std::fs::create_dir_all(&podman_dir).unwrap();
+        std::fs::File::create(podman_dir.join("podman.sock")).unwrap();
+
+        let xdg = dir.path().to_str().unwrap().to_string();
+        let prev = std::env::var("XDG_RUNTIME_DIR").ok();
+        unsafe { std::env::set_var("XDG_RUNTIME_DIR", &xdg) };
+
+        let found = find_alternative_sockets();
+
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("XDG_RUNTIME_DIR", v),
+                None => std::env::remove_var("XDG_RUNTIME_DIR"),
+            }
+        }
+
+        let expected = format!("{xdg}/podman/podman.sock");
+        assert!(found.contains(&expected), "expected XDG podman socket; got: {found:?}");
+    }
+
+    #[test]
+    fn find_alternative_sockets_includes_home_podman_machine_socket() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let machine_dir = dir.path().join(".local/share/containers/podman/machine");
+        std::fs::create_dir_all(&machine_dir).unwrap();
+        std::fs::File::create(machine_dir.join("podman.sock")).unwrap();
+
+        let home = dir.path().to_str().unwrap().to_string();
+        let prev = std::env::var("HOME").ok();
+        unsafe { std::env::set_var("HOME", &home) };
+
+        let found = find_alternative_sockets();
+
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("HOME", v),
+                None => std::env::remove_var("HOME"),
+            }
+        }
+
+        let expected = format!("{home}/.local/share/containers/podman/machine/podman.sock");
+        assert!(found.contains(&expected), "expected HOME podman machine socket; got: {found:?}");
+    }
+
+    #[test]
+    fn find_alternative_sockets_deduplicates_results() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let podman_dir = dir.path().join("podman");
+        std::fs::create_dir_all(&podman_dir).unwrap();
+        std::fs::File::create(podman_dir.join("podman.sock")).unwrap();
+
+        let xdg = dir.path().to_str().unwrap().to_string();
+        let prev = std::env::var("XDG_RUNTIME_DIR").ok();
+        unsafe { std::env::set_var("XDG_RUNTIME_DIR", &xdg) };
+
+        let found = find_alternative_sockets();
+
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("XDG_RUNTIME_DIR", v),
+                None => std::env::remove_var("XDG_RUNTIME_DIR"),
+            }
+        }
+
+        let expected = format!("{xdg}/podman/podman.sock");
+        let count = found.iter().filter(|p| *p == &expected).count();
+        assert_eq!(count, 1, "socket should appear exactly once; got: {found:?}");
+    }
+
+    // -------------------------------------------------------------------------
+    // extra_hosts and CONTAINER_RUNTIME env var
+    // -------------------------------------------------------------------------
+
+    fn build_extra_hosts(runtime: ContainerRuntime) -> Vec<String> {
+        let mut hosts = vec![
+            "host.docker.internal:host-gateway".to_string(),
+            "host.openshell.internal:host-gateway".to_string(),
+        ];
+        if runtime == ContainerRuntime::Podman {
+            hosts.push("host.containers.internal:host-gateway".to_string());
+        }
+        hosts
+    }
+
+    #[test]
+    fn extra_hosts_docker_has_two_entries_no_containers_internal() {
+        let hosts = build_extra_hosts(ContainerRuntime::Docker);
+        assert_eq!(hosts.len(), 2);
+        assert!(!hosts.iter().any(|h| h.contains("containers.internal")));
+        assert!(hosts.iter().any(|h| h == "host.docker.internal:host-gateway"));
+        assert!(hosts.iter().any(|h| h == "host.openshell.internal:host-gateway"));
+    }
+
+    #[test]
+    fn extra_hosts_podman_has_three_entries_with_containers_internal() {
+        let hosts = build_extra_hosts(ContainerRuntime::Podman);
+        assert_eq!(hosts.len(), 3);
+        assert!(hosts.iter().any(|h| h == "host.containers.internal:host-gateway"));
+        assert!(hosts.iter().any(|h| h == "host.docker.internal:host-gateway"));
+        assert!(hosts.iter().any(|h| h == "host.openshell.internal:host-gateway"));
+    }
+
+    #[test]
+    fn container_runtime_env_var_docker() {
+        assert_eq!(format!("CONTAINER_RUNTIME={}", ContainerRuntime::Docker), "CONTAINER_RUNTIME=docker");
+    }
+
+    #[test]
+    fn container_runtime_env_var_podman() {
+        assert_eq!(format!("CONTAINER_RUNTIME={}", ContainerRuntime::Podman), "CONTAINER_RUNTIME=podman");
+    }
+
     /// Live integration test: verify that check_docker_available() detects the
     /// correct runtime when a Podman or Docker socket is reachable.
     /// Run with: cargo test -p openshell-bootstrap detect_runtime -- --ignored --nocapture
