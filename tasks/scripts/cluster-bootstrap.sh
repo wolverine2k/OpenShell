@@ -55,11 +55,17 @@ resolve_registry_port() {
 
   if "${CONTAINER_CMD}" inspect "${_container}" >/dev/null 2>&1; then
     local _mapped
-    _mapped=$("${CONTAINER_CMD}" port "${_container}" 5000/tcp 2>/dev/null \
-      | awk -F: '{print $NF}' | head -1 || true)
+    # Use HostConfig (works on stopped containers; `port` requires a running container).
+    _mapped=$("${CONTAINER_CMD}" inspect "${_container}" \
+      --format '{{range $p, $b := .HostConfig.PortBindings}}{{if eq $p "5000/tcp"}}{{range $b}}{{.HostPort}}{{end}}{{end}}{{end}}' \
+      2>/dev/null || true)
     if [ -n "${_mapped}" ] && [ "${_mapped}" != "0" ]; then
-      echo "${_mapped}"
-      return
+      # Only reuse this port if it is actually free (or held by the registry itself).
+      if ! port_is_in_use "${_mapped}"; then
+        echo "${_mapped}"
+        return
+      fi
+      # Port is taken by something else — fall through to pick a new one.
     fi
   fi
 
@@ -183,10 +189,25 @@ wait_for_registry_ready() {
 }
 
 ensure_local_registry() {
+  # Remove stale pull-through proxy containers.
   if "${CONTAINER_CMD}" inspect "${LOCAL_REGISTRY_CONTAINER}" >/dev/null 2>&1; then
     local proxy_remote_url
     proxy_remote_url=$("${CONTAINER_CMD}" inspect "${LOCAL_REGISTRY_CONTAINER}" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | awk -F= '/^REGISTRY_PROXY_REMOTEURL=/{print $2; exit}' || true)
     if [ -n "${proxy_remote_url}" ]; then
+      "${CONTAINER_CMD}" rm -f "${LOCAL_REGISTRY_CONTAINER}" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # If the container exists with a mismatched port binding, remove it so we
+  # can recreate it on the resolved port.  This check uses HostConfig (works
+  # on stopped containers) to avoid a bind-error on start.
+  if "${CONTAINER_CMD}" inspect "${LOCAL_REGISTRY_CONTAINER}" >/dev/null 2>&1; then
+    local _existing_port
+    _existing_port=$("${CONTAINER_CMD}" inspect "${LOCAL_REGISTRY_CONTAINER}" \
+      --format '{{range $p, $b := .HostConfig.PortBindings}}{{if eq $p "5000/tcp"}}{{range $b}}{{.HostPort}}{{end}}{{end}}{{end}}' \
+      2>/dev/null || true)
+    if [ -n "${_existing_port}" ] && [ "${_existing_port}" != "${LOCAL_REGISTRY_PORT}" ]; then
+      echo "Recreating local registry: old port ${_existing_port} → ${LOCAL_REGISTRY_PORT}" >&2
       "${CONTAINER_CMD}" rm -f "${LOCAL_REGISTRY_CONTAINER}" >/dev/null 2>&1 || true
     fi
   fi
@@ -197,16 +218,6 @@ ensure_local_registry() {
     if ! "${CONTAINER_CMD}" ps --filter "name=^${LOCAL_REGISTRY_CONTAINER}$" --filter "status=running" -q | grep -q .; then
       "${CONTAINER_CMD}" start "${LOCAL_REGISTRY_CONTAINER}" >/dev/null
     fi
-
-    port_map=$("${CONTAINER_CMD}" port "${LOCAL_REGISTRY_CONTAINER}" 5000/tcp 2>/dev/null || true)
-    case "${port_map}" in
-      *:"${LOCAL_REGISTRY_PORT}")
-        ;;
-      *)
-        "${CONTAINER_CMD}" rm -f "${LOCAL_REGISTRY_CONTAINER}" >/dev/null 2>&1 || true
-        "${CONTAINER_CMD}" run -d --restart=always --name "${LOCAL_REGISTRY_CONTAINER}" -p "${LOCAL_REGISTRY_PORT}:5000" registry:2 >/dev/null
-        ;;
-    esac
   fi
 
   if wait_for_registry_ready 20 1; then
