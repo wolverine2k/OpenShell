@@ -38,8 +38,7 @@ TARGET_IMAGE="${IMAGE_REPO_BASE}/${component}:${IMAGE_TAG}"
 
 source_candidates=(
   "openshell/${component}:${IMAGE_TAG}"
-  "localhost:5000/openshell/${component}:${IMAGE_TAG}"
-  "127.0.0.1:5000/openshell/${component}:${IMAGE_TAG}"
+  "${IMAGE_REPO_BASE}/${component}:${IMAGE_TAG}"
 )
 
 resolved_source_image=""
@@ -57,7 +56,13 @@ if [ -z "${resolved_source_image}" ]; then
 fi
 
 "${CONTAINER_CMD}" tag "${resolved_source_image}" "${TARGET_IMAGE}"
-"${CONTAINER_CMD}" push "${TARGET_IMAGE}"
+
+# Podman requires explicit --tls-verify=false for plain-HTTP registries.
+PUSH_ARGS=()
+if [ "${CONTAINER_CMD}" = "podman" ]; then
+  PUSH_ARGS+=(--tls-verify=false)
+fi
+"${CONTAINER_CMD}" push "${PUSH_ARGS[@]}" "${TARGET_IMAGE}"
 
 # Evict the stale image from k3s's containerd cache so new pods pull the
 # updated image. Without this, k3s uses its cached copy (imagePullPolicy
