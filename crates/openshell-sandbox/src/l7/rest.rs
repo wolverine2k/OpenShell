@@ -168,7 +168,8 @@ where
         BodyLength::None => {}
     }
     upstream.flush().await.into_diagnostic()?;
-    relay_response(&req.action, upstream, client).await
+    let (reusable, _status) = relay_response(&req.action, upstream, client).await?;
+    Ok(reusable)
 }
 
 /// Send a 403 Forbidden JSON deny response.
@@ -375,12 +376,12 @@ fn find_crlf(buf: &[u8], start: usize) -> Option<usize> {
 /// `false` if it was consumed (read-until-EOF or `Connection: close`).
 /// Relay an HTTP response from upstream back to the client.
 ///
-/// Returns `true` if the connection should stay alive for further requests.
+/// Returns `(keep_alive, status_code)`.
 pub(crate) async fn relay_response_to_client<U, C>(
     upstream: &mut U,
     client: &mut C,
     request_method: &str,
-) -> Result<bool>
+) -> Result<(bool, u16)>
 where
     U: AsyncRead + Unpin,
     C: AsyncWrite + Unpin,
@@ -392,7 +393,7 @@ async fn relay_response<U, C>(
     request_method: &str,
     upstream: &mut U,
     client: &mut C,
-) -> Result<bool>
+) -> Result<(bool, u16)>
 where
     U: AsyncRead + Unpin,
     C: AsyncWrite + Unpin,
@@ -413,7 +414,7 @@ where
             if !buf.is_empty() {
                 client.write_all(&buf).await.into_diagnostic()?;
             }
-            return Ok(false);
+            return Ok((false, 0));
         }
         buf.extend_from_slice(&tmp[..n]);
 
@@ -446,7 +447,7 @@ where
             .await
             .into_diagnostic()?;
         client.flush().await.into_diagnostic()?;
-        return Ok(!server_wants_close);
+        return Ok((!server_wants_close, status_code));
     }
 
     // No explicit framing (no Content-Length, no Transfer-Encoding).
@@ -466,7 +467,7 @@ where
             }
             relay_until_eof(upstream, client).await?;
             client.flush().await.into_diagnostic()?;
-            return Ok(false);
+            return Ok((false, status_code));
         }
         // No Connection: close — an HTTP/1.1 keep-alive server that omits
         // framing headers has an empty body.  Forward headers and continue
@@ -477,7 +478,7 @@ where
             .await
             .into_diagnostic()?;
         client.flush().await.into_diagnostic()?;
-        return Ok(true);
+        return Ok((true, status_code));
     }
 
     // Forward response headers + any overflow body bytes
@@ -510,7 +511,7 @@ where
     // loop will exit via the normal error path.  Exiting early here would
     // tear down the CONNECT tunnel before the client can detect the close,
     // causing ~30 s retry delays in clients like `gh`.
-    Ok(true)
+    Ok((true, status_code))
 }
 
 /// Parse the HTTP status code from a response status line.
@@ -748,7 +749,7 @@ mod tests {
         .await
         .expect("relay_response should not deadlock");
 
-        let reusable = result.expect("relay_response should succeed");
+        let (reusable, _status) = result.expect("relay_response should succeed");
         assert!(!reusable, "connection consumed by read-until-EOF");
 
         client_write.shutdown().await.unwrap();
@@ -786,7 +787,7 @@ mod tests {
         .await
         .expect("must not block when no Connection: close");
 
-        let reusable = result.expect("relay_response should succeed");
+        let (reusable, _status) = result.expect("relay_response should succeed");
         assert!(reusable, "keep-alive implied, connection reusable");
 
         client_write.shutdown().await.unwrap();
@@ -819,7 +820,7 @@ mod tests {
         .await
         .expect("HEAD relay must not deadlock waiting for body");
 
-        let reusable = result.expect("relay_response should succeed");
+        let (reusable, _status) = result.expect("relay_response should succeed");
         assert!(reusable, "HEAD response should be reusable");
 
         client_write.shutdown().await.unwrap();
@@ -849,7 +850,7 @@ mod tests {
         .await
         .expect("204 relay must not deadlock");
 
-        let reusable = result.expect("relay_response should succeed");
+        let (reusable, _status) = result.expect("relay_response should succeed");
         assert!(reusable, "204 response should be reusable");
 
         client_write.shutdown().await.unwrap();
@@ -881,7 +882,7 @@ mod tests {
         .await
         .expect("must not block when chunked body is complete in overflow");
 
-        let reusable = result.expect("relay_response should succeed");
+        let (reusable, _status) = result.expect("relay_response should succeed");
         assert!(reusable, "connection should be reusable");
 
         client_write.shutdown().await.unwrap();
@@ -917,7 +918,7 @@ mod tests {
         .await
         .expect("must not block when chunked response has trailers");
 
-        let reusable = result.expect("relay_response should succeed");
+        let (reusable, _status) = result.expect("relay_response should succeed");
         assert!(reusable, "chunked response should be reusable");
 
         client_write.shutdown().await.unwrap();
@@ -952,7 +953,7 @@ mod tests {
         .await
         .expect("normal relay must not deadlock");
 
-        let reusable = result.expect("relay_response should succeed");
+        let (reusable, _status) = result.expect("relay_response should succeed");
         assert!(reusable, "Content-Length response should be reusable");
 
         client_write.shutdown().await.unwrap();
@@ -980,7 +981,7 @@ mod tests {
         .await
         .expect("relay must not deadlock");
 
-        let reusable = result.expect("relay_response should succeed");
+        let (reusable, _status) = result.expect("relay_response should succeed");
         // With explicit framing, Connection: close is still reported as reusable
         // so the relay loop continues.  The *next* upstream write will fail and
         // exit the loop via the normal error path.
