@@ -128,9 +128,13 @@ def _restore_cluster_inference(
     if previous is None:
         return
 
+    # Restore without re-verifying: the previous state was already accepted
+    # (possibly set with --no-verify), so verification would fail for
+    # unreachable endpoints and prevent teardown from completing.
     inference_client.set_cluster(
         provider_name=previous.provider_name,
         model_id=previous.model_id,
+        no_verify=True,
     )
 
 
