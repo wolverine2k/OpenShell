@@ -184,6 +184,7 @@ if [[ "${CONTAINER_CMD}" = "podman" ]]; then
   "${CONTAINER_CMD}" build \
     ${DOCKER_PLATFORM:+--platform "${DOCKER_PLATFORM}"} \
     --layers \
+    --format docker \
     -f "${DOCKERFILE}" \
     --target "${DOCKER_TARGET}" \
     ${TAG_ARGS[@]+"${TAG_ARGS[@]}"} \
